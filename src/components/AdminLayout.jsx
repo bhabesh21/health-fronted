@@ -1,7 +1,13 @@
 ﻿import { useMemo, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
-      
+  AppBar,
+  Avatar,
+  Badge,
+  Box,
+  ButtonBase,
+  CssBaseline,
+  Divider,
   Drawer,
   IconButton,
   InputBase,
@@ -15,10 +21,10 @@ import {
   Toolbar,
   Typography,
   useMediaQuery
-} from "@mui/material";                                
+} from "@mui/material";
 import { useTheme } from "@mui/material/styles";
-import MenuIcon from "@mui/icons-material/Menu";       
-import SearchIcon from "@mui/icons-material/Search";                 
+import MenuIcon from "@mui/icons-material/Menu";
+import SearchIcon from "@mui/icons-material/Search";
 import NotificationsIcon from "@mui/icons-material/Notifications";
 import DashboardIcon from "@mui/icons-material/Dashboard";
 import LocalHospitalIcon from "@mui/icons-material/LocalHospital";
@@ -65,8 +71,8 @@ export default function AdminLayout() {
       { id: 2, title: "Payment received (INV-9012)", meta: "1 hour ago" },
       { id: 3, title: "Doctor profile updated", meta: "Today" }
     ],
-    [] 
-  );         
+    []
+  );
 
   function handleToggleMobile() {
     setMobileOpen((open) => !open);
