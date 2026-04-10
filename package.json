@@ -5,13 +5,13 @@
     "type": "module",
     "scripts": {
         "dev": "vite",
-        "build": "vite build",
+        "build": "npx vite build",
         "preview": "vite preview"
     },
     "dependencies": {
         "@emotion/react": "^11.11.4",
         "@emotion/styled": "^11.11.5",
-        "@mui/icons-material": "^5.15.21",
+        "@mui/icons-material": "^5.18.0",
         "@mui/material": "^5.15.21",
         "@stripe/react-stripe-js": "^3.10.0",
         "@stripe/stripe-js": "^7.9.0",
