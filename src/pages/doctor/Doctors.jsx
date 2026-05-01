@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import axios from "axios";
+import { ThreeDots } from "react-loader-spinner";
+
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Dialog from "@mui/material/Dialog";
@@ -9,6 +10,7 @@ import DialogTitle from "@mui/material/DialogTitle";
 import FormControl from "@mui/material/FormControl";
 import IconButton from "@mui/material/IconButton";
 import InputLabel from "@mui/material/InputLabel";
+import Card from "@mui/material/Card";
 import MenuItem from "@mui/material/MenuItem";
 import Paper from "@mui/material/Paper";
 import Select from "@mui/material/Select";
@@ -16,20 +18,44 @@ import Stack from "@mui/material/Stack";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
-import TableContainer from "@mui/material/TableContainer";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
+import Alert from "@mui/material/Alert";
+import Snackbar from "@mui/material/Snackbar";
+
+import api from "../../api/api-handler";
 
 const Doctor = () => {
-  const API_BASE_URL = (
-    import.meta.env.VITE_API_BASEURL ||
-    import.meta.env.api_baseurl ||
-    "http://localhost:5000/api"
-  ).replace(/\/+$/, "");
+  const [doctors, setDoctors] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const [toast, setToast] = useState({
+    open: false,
+    message: "",
+    severity: "success",
+  });
+
+  const showToast = (message, severity = "success") => {
+    setToast({ open: true, message, severity });
+  };
+
+  const emptyForm = {
+    name: "",
+    specialization: "",
+    experience: "",
+    fees: "",
+    contact: "",
+    email: "",
+  };
+
+  const [form, setForm] = useState(emptyForm);
+  const [editId, setEditId] = useState(null);
+  const [showDialog, setShowDialog] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const specializationOptions = [
     "Cardiologist",
@@ -45,36 +71,24 @@ const Doctor = () => {
     "Surgeon",
   ];
 
-  const [doctors, setDoctors] = useState([]);
-  const emptyForm = {
-    name: "",
-    specialization: "",
-    experience: "",
-    fees: "",
-    contact: "",
-    email: "",
-  };
-  const [form, setForm] = useState(emptyForm);
-  const [editId, setEditId] = useState(null);
-  const [showDialog, setShowDialog] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-
-  const normalizeForm = (doc = {}) => ({
-    name: doc.name ?? "",
-    specialization: doc.specialization ?? "",
-    experience: doc.experience ?? "",
-    fees: doc.fees ?? "",
-    contact: doc.contact ?? "",
-    email: doc.email ?? "",
-  });
-
-  // GET Doctors
+  // ✅ GET
   const fetchDoctors = async () => {
+    setLoading(true);
+    const startTime = Date.now();
+
     try {
-      const res = await axios.get(`${API_BASE_URL}/doctors/get-doctors`);
+      const res = await api.get("/doctors/admin/doctors");
       setDoctors(res.data);
     } catch (err) {
-      console.error("Failed to fetch doctors", err);
+      console.error(err);
+      showToast("Failed to fetch doctors", "error");
+    } finally {
+      const elapsed = Date.now() - startTime;
+      const remaining = 2000 - elapsed;
+
+      setTimeout(() => {
+        setLoading(false);
+      }, remaining > 0 ? remaining : 0);
     }
   };
 
@@ -82,9 +96,14 @@ const Doctor = () => {
     fetchDoctors();
   }, []);
 
-  // Handle Input
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleOpenAdd = () => {
+    setForm(emptyForm);
+    setEditId(null);
+    setShowDialog(true);
   };
 
   const handleCloseDialog = () => {
@@ -94,218 +113,166 @@ const Doctor = () => {
     setEditId(null);
   };
 
-  const handleOpenAdd = () => {
-    setForm(emptyForm);
-    setEditId(null);
-    setShowDialog(true);
-  };
-
-  // ADD / UPDATE Doctor
+  // ✅ ADD / UPDATE
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     setIsSaving(true);
+    setLoading(true);
+
     try {
       if (editId) {
-        await axios.put(`${API_BASE_URL}/doctors/${editId}`, form);
+        await api.put(`/doctors/admin/update-doctor/${editId}`, form);
+        showToast("Doctor updated successfully");
       } else {
-        await axios.post(`${API_BASE_URL}/doctors/create-doctor`, form);
+        await api.post(`/doctors/admin/create-doctor`, form);
+        showToast("Doctor added successfully");
       }
 
-      setForm(emptyForm);
-      setEditId(null);
       setShowDialog(false);
       fetchDoctors();
     } catch (err) {
-      console.error("Failed to save doctor", err);
-      alert("Failed to save doctor. Please try again.");
+      console.error(err);
+      showToast("Failed to save doctor", "error");
     } finally {
       setIsSaving(false);
+      setLoading(false);
     }
   };
 
-  // DELETE Doctor
+  // ✅ DELETE (🔥 FIXED - NO FLICKER)
   const handleDelete = async (id) => {
     try {
-      await axios.delete(`${API_BASE_URL}/doctors/${id}`);
-      fetchDoctors();
+      await api.delete(`/doctors/admin/delete-doctor/${id}`);
+
+      // ✅ smooth UI update
+      setDoctors((prev) => prev.filter((doc) => doc._id !== id));
+
+      showToast("Doctor deleted");
     } catch (err) {
-      console.error("Failed to delete doctor", err);
-      alert("Failed to delete doctor. Please try again.");
+      console.error(err);
+      showToast("Delete failed", "error");
     }
   };
 
-  // EDIT Doctor
   const handleEdit = (doc) => {
-    setForm(normalizeForm(doc));
+    setForm(doc);
     setEditId(doc._id);
     setShowDialog(true);
   };
 
   return (
     <Box sx={{ px: 2, py: 3 }}>
-      <Stack
-        direction="row"
-        alignItems="center"
-        justifyContent="space-between"
-        sx={{ mb: 2 }}
+      {/* Loader / Empty / Table */}
+      {loading ? (
+        <Card>
+          <Box display="flex" justifyContent="center" alignItems="center" height="300px">
+            <ThreeDots height="80" width="80" color="#4fa94d" />
+          </Box>
+        </Card>
+      ) : doctors.length === 0 ? (
+        <Paper sx={{ p: 4, textAlign: "center", mt: 3 }}>
+          <Typography>No Doctors Found</Typography>
+          <Button variant="contained" onClick={handleOpenAdd} sx={{ mt: 2 }}>
+            Add Doctor
+          </Button>
+        </Paper>
+      ) : (
+        <div>
+          <Stack direction="row" justifyContent="space-between" mb={2}>
+            <Typography variant="h5">Doctor Management</Typography>
+            <Button variant="contained" onClick={handleOpenAdd}>
+              Add Doctor
+            </Button>
+          </Stack>
+
+          <Card component={Paper}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Name</TableCell>
+                  <TableCell>Specialization</TableCell>
+                  <TableCell>Experience</TableCell>
+                  <TableCell>Fees</TableCell>
+                  <TableCell>Contact</TableCell>
+                  <TableCell>Email</TableCell>
+                  <TableCell>Action</TableCell>
+                </TableRow>
+              </TableHead>
+
+              <TableBody>
+                {doctors.map((doc) => (
+                  <TableRow key={doc._id}>
+                    <TableCell>{doc.name}</TableCell>
+                    <TableCell>{doc.specialization}</TableCell>
+                    <TableCell>{doc.experience}</TableCell>
+                    <TableCell>{doc.fees}</TableCell>
+                    <TableCell>{doc.contact}</TableCell>
+                    <TableCell>{doc.email}</TableCell>
+                    <TableCell>
+                      <IconButton onClick={() => handleEdit(doc)}>
+                        <EditIcon />
+                      </IconButton>
+                      <IconButton color="error" onClick={() => handleDelete(doc._id)}>
+                        <DeleteIcon />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+        </div>
+      )}
+
+      {/* ✅ Toast */}
+      <Snackbar
+        open={toast.open}
+        autoHideDuration={3000}
+        onClose={() => setToast({ ...toast, open: false })}
+        anchorOrigin={{ vertical: "top", horizontal: "right" }}
       >
-        <Typography variant="h5" fontWeight={700}>
-          Doctor Management
-        </Typography>
-        <Button variant="contained" onClick={handleOpenAdd}>
-          Add Doctor
-        </Button>
-      </Stack>
-
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>Specialization</TableCell>
-              <TableCell>Experience</TableCell>
-              <TableCell>Fees</TableCell>
-              <TableCell>Contact</TableCell>
-              <TableCell>Email</TableCell>
-              <TableCell align="right">Action</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {doctors.map((doc) => (
-              <TableRow key={doc._id} hover>
-                <TableCell>{doc.name}</TableCell>
-                <TableCell>{doc.specialization}</TableCell>
-                <TableCell>{doc.experience}</TableCell>
-                <TableCell>{doc.fees}</TableCell>
-                <TableCell>{doc.contact}</TableCell>
-                <TableCell>{doc.email}</TableCell>
-                <TableCell align="right">
-                  <IconButton
-                    aria-label="edit"
-                    onClick={() => handleEdit(doc)}
-                    size="small"
-                  >
-                    <EditIcon fontSize="small" />
-                  </IconButton>
-                  <IconButton
-                    aria-label="delete"
-                    onClick={() => handleDelete(doc._id)}
-                    size="small"
-                    color="error"
-                  >
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </TableCell>
-              </TableRow>
-            ))}
-            {doctors.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={7} align="center">
-                  <Typography variant="body2" color="text.secondary">
-                    No doctors found
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
-
-      <Dialog
-        open={showDialog}
-        onClose={handleCloseDialog}
-        fullWidth
-        maxWidth="sm"
-      >
-       <Box component="form" onSubmit={handleSubmit}>
-  <DialogTitle>{editId ? "Update Doctor" : "Add Doctor"}</DialogTitle>
-
-  <DialogContent dividers>
-    <Stack spacing={2} sx={{ pt: 1 }}>
-
-      <TextField
-        label="Name"
-        name="name"
-        size="small"
-        value={form.name}
-        onChange={handleChange}
-        fullWidth
-        required
-      />
-
-      <FormControl fullWidth required size="small">
-        <InputLabel id="doctor-specialization-label">
-          Specialization
-        </InputLabel>
-        <Select
-          labelId="doctor-specialization-label"
-          label="Specialization"
-          name="specialization"
-          value={form.specialization}
-          onChange={handleChange}
+        <Alert
+          onClose={() => setToast({ ...toast, open: false })}
+          severity={toast.severity}
+          variant="filled"
+          sx={{ width: "100%" }}
         >
-          <MenuItem value="" disabled>
-            Select specialization
-          </MenuItem>
-          {specializationOptions.map((opt) => (
-            <MenuItem key={opt} value={opt}>
-              {opt}
-            </MenuItem>
-          ))}
-        </Select>
-      </FormControl>
+          {toast.message}
+        </Alert>
+      </Snackbar>
 
-      <TextField
-        label="Experience"
-        name="experience"
-        size="small"
-        value={form.experience}
-        onChange={handleChange}
-        fullWidth
-      />
+      {/* Dialog */}
+      <Dialog open={showDialog} onClose={handleCloseDialog} fullWidth>
+        <Box component="form" onSubmit={handleSubmit}>
+          <DialogTitle>{editId ? "Update Doctor" : "Add Doctor"}</DialogTitle>
 
-      <TextField
-        label="Fees"
-        name="fees"
-        size="small"
-        value={form.fees}
-        onChange={handleChange}
-        fullWidth
-      />
+          <DialogContent>
+            <Stack spacing={2} mt={1}>
+              <TextField label="Name" name="name" size="small" value={form.name} onChange={handleChange} required />
 
-      <TextField
-        label="Contact"
-        name="contact"
-        size="small"
-        value={form.contact}
-        onChange={handleChange}
-        fullWidth
-      />
+              <FormControl fullWidth size="small">
+                <InputLabel>Specialization</InputLabel>
+                <Select name="specialization" value={form.specialization} onChange={handleChange}>
+                  {specializationOptions.map((opt) => (
+                    <MenuItem key={opt} value={opt}>{opt}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
 
-      <TextField
-        label="Email"
-        name="email"
-        type="email"
-        size="small"
-        value={form.email}
-        onChange={handleChange}
-        fullWidth
-      />
+              <TextField label="Experience" name="experience" size="small" value={form.experience} onChange={handleChange} />
+              <TextField label="Fees" name="fees" size="small" value={form.fees} onChange={handleChange} />
+              <TextField label="Contact" name="contact" size="small" value={form.contact} onChange={handleChange} />
+              <TextField label="Email" name="email" size="small" value={form.email} onChange={handleChange} />
+            </Stack>
+          </DialogContent>
 
-    </Stack>
-  </DialogContent>
-
-  <DialogActions>
-    <Button onClick={handleCloseDialog} disabled={isSaving}>
-      Cancel
-    </Button>
-
-    <Button type="submit" variant="contained" disabled={isSaving}>
-      {isSaving ? "Saving..." : editId ? "Update" : "Add"}
-    </Button>
-  </DialogActions>
-</Box>
+          <DialogActions>
+            <Button onClick={handleCloseDialog}>Cancel</Button>
+            <Button type="submit" variant="contained">
+              {editId ? "Update" : "Add"}
+            </Button>
+          </DialogActions>
+        </Box>
       </Dialog>
     </Box>
   );

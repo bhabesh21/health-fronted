@@ -35,7 +35,7 @@ import AssessmentIcon from "@mui/icons-material/Assessment";
 import SettingsIcon from "@mui/icons-material/Settings";
 import PersonIcon from "@mui/icons-material/Person";
 import LogoutIcon from "@mui/icons-material/Logout";
-import { AUTH_KEY } from "./RequireAuth.jsx";
+import { useAuth } from "../contexts/AuthContext.jsx";
 import hospitalLogo from "../assets/hospital-logo.svg";
 
 const drawerWidth = 260;
@@ -43,6 +43,7 @@ const drawerWidth = 260;
 export default function AdminLayout() {
   const theme = useTheme();
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const isMdUp = useMediaQuery(theme.breakpoints.up("md"));
   const [mobileOpen, setMobileOpen] = useState(false);
   const [profileAnchorEl, setProfileAnchorEl] = useState(null);
@@ -95,12 +96,9 @@ export default function AdminLayout() {
   }
 
   function handleLogout() {
-    try {
-      localStorage.removeItem(AUTH_KEY);
-    } finally {
-      handleCloseProfile();
-      navigate("/login", { replace: true });
-    }
+    handleCloseProfile();
+    logout();
+    navigate("/login", { replace: true });
   }
 
   const drawerContent = (
@@ -308,13 +306,15 @@ export default function AdminLayout() {
               }
             }}
           >
-            <Avatar sx={{ width: 32, height: 32, bgcolor: "primary.main" }}>A</Avatar>
+            <Avatar sx={{ width: 32, height: 32, bgcolor: "primary.main" }}>
+              {user?.name?.charAt(0)?.toUpperCase() || "A"}
+            </Avatar>
             <Box sx={{ textAlign: "left", display: { xs: "none", sm: "block" } }}>
               <Typography sx={{ fontSize: 13, lineHeight: 1.1, fontWeight: 700 }}>
-                Admin
+                {user?.name || "Admin"}
               </Typography>
               <Typography sx={{ fontSize: 12, lineHeight: 1.1, color: "text.secondary" }}>
-                Administrator
+                {user?.role === "admin" ? "Administrator" : "User"}
               </Typography>
             </Box>
           </ButtonBase>
@@ -336,9 +336,11 @@ export default function AdminLayout() {
             }}
           >
             <Box sx={{ px: 2, py: 1.5 }}>
-              <Typography sx={{ fontWeight: 800, lineHeight: 1.1 }}>Admin</Typography>
+              <Typography sx={{ fontWeight: 800, lineHeight: 1.1 }}>
+                {user?.name || "Admin"}
+              </Typography>
               <Typography variant="caption" sx={{ color: "text.secondary" }}>
-                admin@healthsync.local
+                {user?.email || "admin@healthsync.local"}
               </Typography>
             </Box>
             <Divider />

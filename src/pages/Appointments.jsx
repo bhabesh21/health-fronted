@@ -1,5 +1,4 @@
 ﻿import React, { useEffect, useState } from "react";
-import axios from "axios";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -15,49 +14,31 @@ import Paper from "@mui/material/Paper";
 import Select from "@mui/material/Select";
 import Snackbar from "@mui/material/Snackbar";
 import Stack from "@mui/material/Stack";
+import Card from "@mui/material/Card";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
-import TableContainer from "@mui/material/TableContainer";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
+import { ThreeDots } from "react-loader-spinner";
+
+import dayjs from "dayjs";
+import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import { DesktopDatePicker } from "@mui/x-date-pickers/DesktopDatePicker";
+
+import api from "../api/api-handler";
 
 export default function Appointments() {
-  const API_BASE_URL = (
-    import.meta.env.VITE_API_BASEURL ||
-    import.meta.env.api_baseurl ||
-    "http://localhost:5000/api"
-  ).replace(/\/+$/, "");
-
-  const statusOptions = ["Scheduled", "Approved", "Completed", "Cancelled"];
-
   const [appointments, setAppointments] = useState([]);
   const [patients, setPatients] = useState([]);
   const [doctors, setDoctors] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const emptyForm = {
-    patientId: "",
-    patientName: "",
-    doctorId: "",
-    doctorName: "",
-    date: "",
-    time: "",
-    status: "Scheduled",
-    notes: "",
-    diagnosis: "",
-    prescription: "",
-    consultationNotes: "",
-    followUpDate: "",
-  };
-
-  const [form, setForm] = useState(emptyForm);
-  const [editId, setEditId] = useState(null);
-  const [showDialog, setShowDialog] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState({
     open: false,
     message: "",
@@ -68,85 +49,43 @@ export default function Appointments() {
     setToast({ open: true, message, severity });
   };
 
-  const splitDateTime = (value) => {
-    if (!value) return { date: "", time: "" };
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return { date: "", time: "" };
-
-    const pad2 = (n) => String(n).padStart(2, "0");
-    const date = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(
-      d.getDate()
-    )}`;
-    const time = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-    return { date, time };
+  const emptyForm = {
+    patientId: "",
+    doctorId: "",
+    date: "",
+    time: "",
   };
 
-  const normalizeForm = (a = {}) => {
-    const { date, time } = splitDateTime(a.appointmentDate);
-    const followUp = splitDateTime(a.followUpDate);
+  const [form, setForm] = useState(emptyForm);
+  const [editId, setEditId] = useState(null);
+  const [showDialog, setShowDialog] = useState(false);
 
-    return {
-      patientId: a.patientId ?? "",
-      patientName: a.patientName ?? "",
-      doctorId: a.doctorId ?? "",
-      doctorName: a.doctorName ?? "",
-      date,
-      time,
-      status: a.status ?? "Scheduled",
-      notes: a.notes ?? "",
-      diagnosis: a.diagnosis ?? "",
-      prescription: a.prescription ?? "",
-      consultationNotes: a.consultationNotes ?? "",
-      followUpDate: followUp.date ?? "",
-    };
-  };
-
-  const toPayload = () => {
-    const dt = form.date
-      ? new Date(`${form.date}T${form.time || "00:00"}:00`)
-      : null;
-    const fu = form.followUpDate
-      ? new Date(`${form.followUpDate}T00:00:00`)
-      : null;
-
-    return {
-      patientId: form.patientId || undefined,
-      patientName: form.patientName,
-      doctorId: form.doctorId || undefined,
-      doctorName: form.doctorName,
-      appointmentDate: dt ? dt.toISOString() : undefined,
-      status: form.status || "Scheduled",
-      notes: form.notes || undefined,
-      diagnosis: form.diagnosis || undefined,
-      prescription: form.prescription || undefined,
-      consultationNotes: form.consultationNotes || undefined,
-      followUpDate: fu ? fu.toISOString() : undefined,
-    };
-  };
-
+  // FETCH
   const fetchAppointments = async () => {
+    setLoading(true);
+    const start = Date.now();
+
     try {
-      const res = await axios.get(
-        `${API_BASE_URL}/appointments/get-allappointments`
-      );
-      setAppointments(res.data);
-    } catch (err) {
-      console.error("Failed to fetch appointments", err);
-      showToast("Failed to fetch appointments.", "error");
+      const res = await api.get("/admin/appointments/getAll");
+      setAppointments(res.data.data);
+    } catch {
+      showToast("Failed to fetch appointments", "error");
+    } finally {
+      const remaining = 2000 - (Date.now() - start);
+      setTimeout(() => setLoading(false), remaining > 0 ? remaining : 0);
     }
   };
 
   const fetchLookups = async () => {
     try {
-      const [patientsRes, doctorsRes] = await Promise.all([
-        axios.get(`${API_BASE_URL}/patients/get-allpatients`),
-        axios.get(`${API_BASE_URL}/doctors/get-doctors`),
+      const [pRes, dRes] = await Promise.all([
+        api.get("/admin/patients/getAll"),
+        api.get("/doctors/admin/doctors"),
       ]);
-      setPatients(patientsRes.data);
-      setDoctors(doctorsRes.data);
-    } catch (err) {
-      console.error("Failed to fetch patients/doctors", err);
-      showToast("Failed to load patients/doctors.", "error");
+      setPatients(pRes.data.patients);
+      setDoctors(dRes.data);
+    } catch {
+      showToast("Failed to load data", "error");
     }
   };
 
@@ -159,363 +98,198 @@ export default function Appointments() {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  const handlePatientChange = (e) => {
-    const patientId = e.target.value;
-    const selected = patients.find((p) => String(p._id) === String(patientId));
-    setForm((f) => ({
-      ...f,
-      patientId,
-      patientName: selected?.name ?? f.patientName,
-    }));
-  };
-
-  const handleDoctorChange = (e) => {
-    const doctorId = e.target.value;
-    const selected = doctors.find((d) => String(d._id) === String(doctorId));
-    setForm((f) => ({
-      ...f,
-      doctorId,
-      doctorName: selected?.name ?? f.doctorName,
-    }));
-  };
-
-  const handleCloseDialog = () => {
-    if (isSaving) return;
-    setShowDialog(false);
-    setForm(emptyForm);
-    setEditId(null);
-  };
-
-  const handleOpenAdd = () => {
-    setForm(emptyForm);
-    setEditId(null);
-    if (patients.length === 0 || doctors.length === 0) fetchLookups();
+  const handleEdit = (a) => {
+    setForm({
+      patientId: a.patient?._id || "",
+      doctorId: a.doctor?._id || "",
+      date: a.date ? a.date.split("T")[0] : "",
+      time: a.time || "",
+    });
+    setEditId(a._id);
     setShowDialog(true);
   };
 
+  // SUBMIT
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!form.patientName || !form.doctorName) {
-      showToast("Please select patient and doctor.", "error");
+    if (!form.patientId || !form.doctorId) {
+      showToast("Select patient & doctor", "error");
       return;
     }
 
-    setIsSaving(true);
     try {
-      const payload = toPayload();
+      const payload = {
+        patient: form.patientId,
+        doctor: form.doctorId,
+        date: form.date,
+        time: form.time,
+      };
 
-      const res = editId
-        ? await axios.put(
-            `${API_BASE_URL}/appointments/update/${editId}`,
-            payload
-          )
-        : await axios.post(
-            `${API_BASE_URL}/appointments/createAppointment`,
-            payload
-          );
-
-      const saved = res.data?.appointment ?? res.data;
-      const invoice = res.data?.invoice;
-
-      if (invoice) {
-        showToast("Appointment saved. Invoice generated.", "success");
+      if (editId) {
+        await api.put(`/admin/appointments/update/${editId}`, payload);
+        showToast("Updated successfully");
       } else {
-        showToast(
-          editId ? "Appointment updated successfully." : "Appointment created successfully.",
-          "success"
-        );
+        await api.post(`/admin/appointments/create`, payload);
+        showToast("Created successfully");
       }
 
       setForm(emptyForm);
       setEditId(null);
       setShowDialog(false);
       fetchAppointments();
-
-      // keep eslint quiet about saved for future UI expansions
-      void saved;
-    } catch (err) {
-      console.error("Failed to save appointment", err);
-      showToast("Failed to save appointment. Please try again.", "error");
-    } finally {
-      setIsSaving(false);
+    } catch {
+      showToast("Error saving", "error");
     }
   };
 
+  // DELETE (smooth)
   const handleDelete = async (id) => {
     try {
-      await axios.delete(`${API_BASE_URL}/appointments/${id}`);
-      showToast("Appointment deleted.", "success");
-      fetchAppointments();
-    } catch (err) {
-      console.error("Failed to delete appointment", err);
-      showToast("Failed to delete appointment. Please try again.", "error");
+      await api.delete(`/admin/appointments/delete/${id}`);
+      setAppointments((prev) => prev.filter((a) => a._id !== id));
+      showToast("Deleted");
+    } catch {
+      showToast("Delete failed", "error");
     }
-  };
-
-  const handleEdit = (a) => {
-    setForm(normalizeForm(a));
-    setEditId(a._id);
-    if (patients.length === 0 || doctors.length === 0) fetchLookups();
-    setShowDialog(true);
-  };
-
-  const formatDateTime = (value) => {
-    if (!value) return "-";
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return "-";
-    return d.toLocaleString();
   };
 
   return (
-    <Box sx={{ px: 2, py: 3 }}>
-      <Stack
-        direction="row"
-        alignItems="center"
-        justifyContent="space-between"
-        sx={{ mb: 2 }}
-      >
-        <Typography variant="h5" fontWeight={700}>
-          Appointment Management
-        </Typography>
-        <Button variant="contained" onClick={handleOpenAdd}>
-          Add Appointment
-        </Button>
-      </Stack>
+    <Box sx={{ p: 3 }}>
+      {/* UI */}
+      {loading ? (
+        <Card>
+          <Box display="flex" justifyContent="center" mt={5}>
+            <ThreeDots height="80" width="80" color="gray" />
+          </Box>
+        </Card>
+      ) : appointments.length === 0 ? (
+        <Paper sx={{ p: 4, textAlign: "center", mt: 3 }}>
+          <Typography>No Appointments Found</Typography>
+          <Button variant="contained" sx={{ mt: 2 }} onClick={() => setShowDialog(true)}>
+            Add Appointment
+          </Button>
+        </Paper>
+      ) : (
+        <div>
+          <Stack direction="row" justifyContent="space-between" mb={2}>
+            <Typography variant="h5">Appointments</Typography>
+            <Button variant="contained" onClick={() => setShowDialog(true)}>
+              Add Appointment
+            </Button>
+          </Stack>
 
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Patient</TableCell>
-              <TableCell>Doctor</TableCell>
-              <TableCell>Date &amp; Time</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell>Notes</TableCell>
-              <TableCell align="right">Action</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {appointments.map((a) => (
-              <TableRow key={a._id} hover>
-                <TableCell>{a.patientName}</TableCell>
-                <TableCell>{a.doctorName}</TableCell>
-                <TableCell>{formatDateTime(a.appointmentDate)}</TableCell>
-                <TableCell>{a.status ?? "-"}</TableCell>
-                <TableCell>{a.notes ?? "-"}</TableCell>
-                <TableCell align="right">
-                  <IconButton
-                    aria-label="edit"
-                    onClick={() => handleEdit(a)}
-                    size="small"
-                  >
-                    <EditIcon fontSize="small" />
-                  </IconButton>
-                  <IconButton
-                    aria-label="delete"
-                    onClick={() => handleDelete(a._id)}
-                    size="small"
-                    color="error"
-                  >
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </TableCell>
-              </TableRow>
-            ))}
-            {appointments.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={6} align="center">
-                  <Typography variant="body2" color="text.secondary">
-                    No appointments found
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+          <Card component={Paper}>
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Patient</TableCell>
+                  <TableCell>Doctor</TableCell>
+                  <TableCell>Date & Time</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell align="right">Action</TableCell>
+                </TableRow>
+              </TableHead>
 
-      <Dialog
-        open={showDialog}
-        onClose={handleCloseDialog}
-        fullWidth
-        maxWidth="sm"
+              <TableBody>
+                {appointments.map((a) => (
+                  <TableRow key={a._id}>
+                    <TableCell>{a.patient?.name}</TableCell>
+                    <TableCell>{a.doctor?.name}</TableCell>
+                    <TableCell>
+                      {new Date(a.date).toLocaleDateString()} {a.time}
+                    </TableCell>
+                    <TableCell>{a.status}</TableCell>
+                    <TableCell align="right">
+                       <IconButton onClick={() => handleEdit(a)}>
+                        <EditIcon />
+                      </IconButton>
+                      <IconButton onClick={() => handleDelete(a._id)}>
+                        <DeleteIcon color="error" />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Card>
+        </div>
+      )}
+
+      {/* Toast */}
+      <Snackbar
+        open={toast.open}
+        autoHideDuration={3000}
+        anchorOrigin={{ vertical: "top", horizontal: "right" }}
+        onClose={() => setToast({ ...toast, open: false })}
       >
+        <Alert severity={toast.severity} variant="filled">
+          {toast.message}
+        </Alert>
+      </Snackbar>
+
+      {/* Dialog */}
+      <Dialog open={showDialog} onClose={() => setShowDialog(false)} fullWidth>
         <Box component="form" onSubmit={handleSubmit}>
-          <DialogTitle>
-            {editId ? "Update Appointment" : "Add Appointment"}
-          </DialogTitle>
+          <DialogTitle>{editId ? "Update" : "Add"} Appointment</DialogTitle>
 
-          <DialogContent dividers>
-            <Stack spacing={2} sx={{ pt: 1 }}>
-              <FormControl fullWidth required size="small">
-                <InputLabel id="appointment-patient-label">Patient</InputLabel>
-                <Select
-                  labelId="appointment-patient-label"
-                  label="Patient"
-                  name="patientId"
-                  value={form.patientId}
-                  onChange={handlePatientChange}
-                >
-                  <MenuItem value="" disabled>
-                    Select patient
-                  </MenuItem>
+          <DialogContent>
+            <Stack spacing={2} mt={1}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Patient</InputLabel>
+                <Select name="patientId" value={form.patientId} onChange={handleChange}>
                   {patients.map((p) => (
-                    <MenuItem key={p._id} value={p._id}>
-                      {p.name}
-                    </MenuItem>
+                    <MenuItem key={p._id} value={p._id}>{p.name}</MenuItem>
                   ))}
                 </Select>
               </FormControl>
-
-              <FormControl fullWidth required size="small">
-                <InputLabel id="appointment-doctor-label">Doctor</InputLabel>
-                <Select
-                  labelId="appointment-doctor-label"
-                  label="Doctor"
-                  name="doctorId"
-                  value={form.doctorId}
-                  onChange={handleDoctorChange}
-                >
-                  <MenuItem value="" disabled>
-                    Select doctor
-                  </MenuItem>
-                  {doctors.map((d) => (
-                    <MenuItem key={d._id} value={d._id}>
-                      {d.name}
-                      {d.specialization ? ` (${d.specialization})` : ""}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                <TextField
-                  label="Date"
-                  name="date"
-                  type="date"
-                  size="small"
-                  value={form.date}
-                  onChange={handleChange}
-                  fullWidth
-                  required
-                  InputLabelProps={{ shrink: true }}
-                />
-                <TextField
-                  label="Time"
-                  name="time"
-                  type="time"
-                  size="small"
-                  value={form.time}
-                  onChange={handleChange}
-                  fullWidth
-                  InputLabelProps={{ shrink: true }}
-                />
-              </Stack>
 
               <FormControl fullWidth size="small">
-                <InputLabel id="appointment-status-label">Status</InputLabel>
-                <Select
-                  labelId="appointment-status-label"
-                  label="Status"
-                  name="status"
-                  value={form.status}
-                  onChange={handleChange}
-                >
-                  {statusOptions.map((opt) => (
-                    <MenuItem key={opt} value={opt}>
-                      {opt}
-                    </MenuItem>
+                <InputLabel>Doctor</InputLabel>
+                <Select name="doctorId" value={form.doctorId} onChange={handleChange}>
+                  {doctors.map((d) => (
+                    <MenuItem key={d._id} value={d._id}>{d.name}</MenuItem>
                   ))}
                 </Select>
               </FormControl>
 
+              {/* ✅ FIXED DATE PICKER */}
+              <LocalizationProvider dateAdapter={AdapterDayjs}>
+                <DesktopDatePicker
+                  label="Select Date"
+                  value={form.date ? dayjs(form.date) : null}
+                  onChange={(newValue) => {
+                    setForm({
+                      ...form,
+                      date: newValue ? newValue.format("YYYY-MM-DD") : "",
+                    });
+                  }}
+                  renderInput={(params) => (
+                    <TextField {...params} size="small" fullWidth />
+                  )}
+                />
+              </LocalizationProvider>
+
+              {/* TIME */}
               <TextField
-                label="Notes"
-                name="notes"
+                label="Select Time"
+                type="time"
+                name="time"
                 size="small"
-                value={form.notes}
+                value={form.time}
                 onChange={handleChange}
+                InputLabelProps={{ shrink: true }}
                 fullWidth
-                multiline
-                minRows={2}
               />
-
-              {form.status === "Completed" && (
-                <>
-                  <TextField
-                    label="Diagnosis"
-                    name="diagnosis"
-                    size="small"
-                    value={form.diagnosis}
-                    onChange={handleChange}
-                    fullWidth
-                  />
-
-                  <TextField
-                    label="Prescription"
-                    name="prescription"
-                    size="small"
-                    value={form.prescription}
-                    onChange={handleChange}
-                    fullWidth
-                    multiline
-                    minRows={2}
-                  />
-
-                  <TextField
-                    label="Consultation Notes"
-                    name="consultationNotes"
-                    size="small"
-                    value={form.consultationNotes}
-                    onChange={handleChange}
-                    fullWidth
-                    multiline
-                    minRows={2}
-                  />
-
-                  <TextField
-                    label="Follow-up Date"
-                    name="followUpDate"
-                    type="date"
-                    size="small"
-                    value={form.followUpDate}
-                    onChange={handleChange}
-                    fullWidth
-                    InputLabelProps={{ shrink: true }}
-                  />
-                </>
-              )}
             </Stack>
           </DialogContent>
 
           <DialogActions>
-            <Button onClick={handleCloseDialog} disabled={isSaving}>
-              Cancel
-            </Button>
-            <Button type="submit" variant="contained" disabled={isSaving}>
-              {isSaving ? "Saving..." : editId ? "Update" : "Add"}
-            </Button>
+            <Button onClick={() => setShowDialog(false)}>Cancel</Button>
+            <Button type="submit" variant="contained">Save</Button>
           </DialogActions>
         </Box>
       </Dialog>
-
-      <Snackbar
-        open={toast.open}
-        autoHideDuration={3000}
-        onClose={() => setToast((t) => ({ ...t, open: false }))}
-        anchorOrigin={{ vertical: "top", horizontal: "right" }}
-        sx={{ mt: 2 }}
-      >
-        <Alert
-          onClose={() => setToast((t) => ({ ...t, open: false }))}
-          severity={toast.severity}
-          variant="filled"
-          sx={{ width: "100%" }}
-        >
-          {toast.message}
-        </Alert>
-      </Snackbar>
     </Box>
   );
 }

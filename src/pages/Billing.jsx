@@ -1,9 +1,10 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
-import axios from "axios";
+import React, { useEffect, useMemo, useState } from "react";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
+import Avatar from "@mui/material/Avatar";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
+import Divider from "@mui/material/Divider";
 import Dialog from "@mui/material/Dialog";
 import DialogActions from "@mui/material/DialogActions";
 import DialogContent from "@mui/material/DialogContent";
@@ -12,7 +13,9 @@ import FormControl from "@mui/material/FormControl";
 import IconButton from "@mui/material/IconButton";
 import InputLabel from "@mui/material/InputLabel";
 import MenuItem from "@mui/material/MenuItem";
+import Grid from "@mui/material/Grid";
 import Paper from "@mui/material/Paper";
+import LinearProgress from "@mui/material/LinearProgress";
 import Select from "@mui/material/Select";
 import Snackbar from "@mui/material/Snackbar";
 import Stack from "@mui/material/Stack";
@@ -29,64 +32,157 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import VisibilityIcon from "@mui/icons-material/Visibility";
+import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
+import PaymentsIcon from "@mui/icons-material/Payments";
+import PendingActionsIcon from "@mui/icons-material/PendingActions";
+import EventAvailableIcon from "@mui/icons-material/EventAvailable";
+import AccountBalanceWalletIcon from "@mui/icons-material/AccountBalanceWallet";
+import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import CircularProgress from "@mui/material/CircularProgress";
-import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
+import { alpha, useTheme } from "@mui/material/styles";
+import useMediaQuery from "@mui/material/useMediaQuery";
+import {
+  Elements,
+  PaymentElement,
+  useElements,
+  useStripe,
+} from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
+import api from "../api/api-handler";
+
+const statusOptions = ["Paid", "Unpaid", "Partial"];
+const itemTypeOptions = [
+  "Consultation",
+  "Room Rent",
+  "Medicine",
+  "X-ray",
+  "Tests",
+  "Other",
+];
+
+const toDate = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const formatDateInput = (value) => {
+  const date = toDate(value);
+  if (!date) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const formatDate = (value) => {
+  const date = toDate(value);
+  return date ? date.toLocaleDateString("en-IN") : "-";
+};
+
+const formatDateTime = (value) => {
+  const date = toDate(value);
+  return date
+    ? date.toLocaleString("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : "-";
+};
+
+const formatMoney = (value) =>
+  new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2,
+  }).format(Number(value || 0));
+
+const getErrorMessage = (error, fallback) =>
+  error?.response?.data?.message || error?.message || fallback;
+
+const unwrapRows = (payload) => {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.invoices)) return payload.invoices;
+  return [];
+};
+
+const getStatus = (invoice) =>
+  invoice?.status || invoice?.paymentStatus || "Unpaid";
+
+const getDue = (invoice) =>
+  Math.max(
+    0,
+    Number(invoice?.totalAmount || 0) - Number(invoice?.paidAmount || 0),
+  );
+
+const getAppointmentDate = (appointment) =>
+  appointment?.appointmentDate || appointment?.date || null;
+
+const formatAppointmentSlot = (appointment) => {
+  const date = getAppointmentDate(appointment);
+  const time = appointment?.time ? String(appointment.time) : "";
+  const dateLabel = date ? formatDate(date) : "-";
+  return time ? `${dateLabel} ${time}` : dateLabel;
+};
+
+const getAppointmentPatientName = (appointment) =>
+  appointment?.patient?.name || appointment?.patientName || "-";
+
+const getAppointmentDoctorName = (appointment) =>
+  appointment?.doctor?.name || appointment?.doctorName || "-";
+
+const getInvoicePatientName = (invoice) =>
+  invoice?.patientId?.name ||
+  invoice?.patient?.name ||
+  invoice?.appointmentId?.patient?.name ||
+  invoice?.patientName ||
+  "-";
+
+const getInvoiceDoctorName = (invoice) =>
+  invoice?.doctorId?.name ||
+  invoice?.doctor?.name ||
+  invoice?.appointmentId?.doctor?.name ||
+  invoice?.doctorName ||
+  "-";
+
+const createEmptyInvoiceForm = () => ({
+  _id: null,
+  appointmentId: "",
+  patientId: "",
+  doctorId: "",
+  patientName: "",
+  doctorName: "",
+  invoiceDate: formatDateInput(new Date()),
+  gstPercent: 0,
+  discountAmount: 0,
+  paidAmount: 0,
+  items: [
+    {
+      type: "Consultation",
+      description: "Consultation",
+      qty: 1,
+      price: 0,
+    },
+  ],
+});
 
 export default function Billing() {
-  const API_BASE_URL = (
-    import.meta.env.VITE_API_BASEURL ||
-    import.meta.env.api_baseurl ||
-    "http://localhost:5000/api"
-  ).replace(/\/+$/, "");
-  const STRIPE_PUBLISHABLE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
-
-  const statusOptions = ["Paid", "Unpaid", "Partial"];
-  const itemTypeOptions = [
-    "Consultation",
-    "Room Rent",
-    "Medicine",
-    "X-ray",
-    "Tests",
-    "Other",
-  ];
+  const STRIPE_PUBLISHABLE_KEY =
+    import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || "";
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   const [invoices, setInvoices] = useState([]);
   const [appointments, setAppointments] = useState([]);
-
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
-
   const [selected, setSelected] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
   const [showPay, setShowPay] = useState(false);
-
-  const [isSaving, setIsSaving] = useState(false);
   const [showEditor, setShowEditor] = useState(false);
-
-  const emptyInvoiceForm = {
-    _id: null,
-    appointmentId: "",
-    patientId: "",
-    doctorId: "",
-    patientName: "",
-    doctorName: "",
-    invoiceDate: "",
-    gstPercent: 0,
-    discountAmount: 0,
-    paidAmount: 0,
-    items: [
-      {
-        type: "Consultation",
-        description: "Consultation",
-        qty: 1,
-        price: 0,
-      },
-    ],
-  };
-
-  const [invoiceForm, setInvoiceForm] = useState(emptyInvoiceForm);
-
+  const [isSaving, setIsSaving] = useState(false);
+  const [invoiceForm, setInvoiceForm] = useState(createEmptyInvoiceForm);
   const [toast, setToast] = useState({
     open: false,
     message: "",
@@ -97,71 +193,51 @@ export default function Billing() {
     setToast({ open: true, message, severity });
   };
 
-  const formatMoney = (n) => `₹${Number(n || 0).toFixed(2)}`;
-  const formatDateTime = (value) => {
-    if (!value) return "-";
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return "-";
-    return d.toLocaleString();
-  };
-
   const invoiceCalc = useMemo(() => {
     const items = invoiceForm.items || [];
-    const subtotal = items.reduce((sum, it) => {
-      const qty = Math.max(0, Number(it.qty || 0));
-      const price = Math.max(0, Number(it.price || 0));
+    const subtotal = items.reduce((sum, item) => {
+      const qty = Math.max(0, Number(item.qty || 0));
+      const price = Math.max(0, Number(item.price || 0));
       return sum + qty * price;
     }, 0);
 
     const gstPercent = Math.max(0, Number(invoiceForm.gstPercent || 0));
-    const discount = Math.max(0, Number(invoiceForm.discountAmount || 0));
+    const discountAmount = Math.max(0, Number(invoiceForm.discountAmount || 0));
     const gstAmount = (subtotal * gstPercent) / 100;
-    const total = Math.max(0, subtotal + gstAmount - discount);
-
+    const total = Math.max(0, subtotal + gstAmount - discountAmount);
     const paid = Math.max(0, Number(invoiceForm.paidAmount || 0));
     const due = Math.max(0, total - paid);
 
     return { subtotal, gstAmount, total, paid, due };
-  }, [
-    invoiceForm.discountAmount,
-    invoiceForm.gstPercent,
-    invoiceForm.items,
-    invoiceForm.paidAmount,
-  ]);
+  }, [invoiceForm]);
 
-  const statusChip = (status) => {
-    const s = status || "Unpaid";
+  const getStatusChip = (status) => {
+    const value = status || "Unpaid";
     const color =
-      s === "Paid" ? "success" : s === "Partial" ? "info" : "warning";
-    return <Chip size="small" label={s} color={color} variant="filled" />;
+      value === "Paid" ? "success" : value === "Partial" ? "info" : "warning";
+    return <Chip size="small" label={value} color={color} variant="filled" />;
   };
-
-  const getPatientName = (inv) =>
-    inv?.patientId?.name || inv?.patientName || "-";
-  const getDoctorName = (inv) => inv?.doctorId?.name || inv?.doctorName || "-";
-  const getStatus = (inv) => inv?.status || inv?.paymentStatus || "Unpaid";
-  const getDue = (inv) =>
-    Math.max(0, Number(inv?.totalAmount || 0) - Number(inv?.paidAmount || 0));
 
   const fetchInvoices = async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/invoices/get-allinvoices`);
-      setInvoices(res.data);
-    } catch (err) {
-      console.error("Failed to fetch invoices", err);
-      showToast("Failed to fetch invoices.", "error");
+      const res = await api.get("/admin/invoices/getAll");
+      setInvoices(unwrapRows(res.data));
+    } catch (error) {
+      console.error("Failed to fetch invoices", error);
+      showToast(getErrorMessage(error, "Failed to fetch invoices."), "error");
     }
   };
 
   const fetchAppointments = async () => {
     try {
-      const res = await axios.get(
-        `${API_BASE_URL}/appointments/get-allappointments`
+      const res = await api.get("/admin/appointments/getAll");
+      setAppointments(unwrapRows(res.data));
+    } catch (error) {
+      console.error("Failed to fetch appointments", error);
+      showToast(
+        getErrorMessage(error, "Failed to load appointments."),
+        "error",
       );
-      setAppointments(res.data);
-    } catch (err) {
-      console.error("Failed to fetch appointments", err);
-      showToast("Failed to load appointments.", "error");
     }
   };
 
@@ -170,26 +246,142 @@ export default function Billing() {
     fetchAppointments();
   }, []);
 
-  const availableAppointments = useMemo(() => {
-    return (appointments || []).filter((a) => !a.invoiceId);
-  }, [appointments]);
+  const availableAppointments = useMemo(
+    () => (appointments || []).filter((appointment) => !appointment.invoiceId),
+    [appointments],
+  );
 
   const filteredInvoices = useMemo(() => {
-    const q = String(searchText || "").trim().toLowerCase();
-    return (invoices || []).filter((inv) => {
+    const q = String(searchText || "")
+      .trim()
+      .toLowerCase();
+
+    return (invoices || []).filter((invoice) => {
       const matchesStatus =
-        statusFilter === "All" || String(getStatus(inv)) === String(statusFilter);
-      const patient = getPatientName(inv).toLowerCase();
-      const doctor = getDoctorName(inv).toLowerCase();
-      const invoiceNo = String(inv.invoiceNumber || "").toLowerCase();
+        statusFilter === "All" ||
+        String(getStatus(invoice)) === String(statusFilter);
       const matchesText =
-        !q || patient.includes(q) || doctor.includes(q) || invoiceNo.includes(q);
+        !q ||
+        getInvoicePatientName(invoice).toLowerCase().includes(q) ||
+        getInvoiceDoctorName(invoice).toLowerCase().includes(q) ||
+        String(invoice.invoiceNumber || "")
+          .toLowerCase()
+          .includes(q);
+
       return matchesStatus && matchesText;
     });
   }, [invoices, searchText, statusFilter]);
 
-  const handleView = (inv) => {
-    setSelected(inv);
+  const billingSummary = useMemo(() => {
+    const totalInvoices = invoices.length;
+    const paidInvoices = invoices.filter(
+      (invoice) => getStatus(invoice) === "Paid",
+    ).length;
+    const partialInvoices = invoices.filter(
+      (invoice) => getStatus(invoice) === "Partial",
+    ).length;
+    const unpaidInvoices = invoices.filter(
+      (invoice) => getStatus(invoice) === "Unpaid",
+    ).length;
+    const totalBilled = invoices.reduce(
+      (sum, invoice) => sum + Number(invoice.totalAmount || 0),
+      0,
+    );
+    const totalCollected = invoices.reduce(
+      (sum, invoice) => sum + Number(invoice.paidAmount || 0),
+      0,
+    );
+    const totalDue = invoices.reduce(
+      (sum, invoice) => sum + getDue(invoice),
+      0,
+    );
+    const averageTicket = totalInvoices ? totalBilled / totalInvoices : 0;
+    const collectionRate = totalBilled
+      ? Math.round((totalCollected / totalBilled) * 100)
+      : 0;
+    const readyAppointments = availableAppointments.length;
+    const backlogRate = totalInvoices
+      ? Math.round(((unpaidInvoices + partialInvoices) / totalInvoices) * 100)
+      : 0;
+
+    return {
+      totalInvoices,
+      paidInvoices,
+      partialInvoices,
+      unpaidInvoices,
+      totalBilled,
+      totalCollected,
+      totalDue,
+      averageTicket,
+      collectionRate,
+      readyAppointments,
+      backlogRate,
+    };
+  }, [availableAppointments.length, invoices]);
+
+  const hasFilters =
+    Boolean(String(searchText || "").trim()) || statusFilter !== "All";
+
+  const clearFilters = () => {
+    setSearchText("");
+    setStatusFilter("All");
+  };
+
+  const heroChipSx = {
+    borderRadius: 999,
+    fontWeight: 700,
+    color: "#fff",
+    bgcolor: alpha("#fff", 0.12),
+    border: `1px solid ${alpha("#fff", 0.2)}`,
+    backdropFilter: "blur(8px)",
+    "& .MuiChip-label": { px: 0.75 },
+  };
+
+  const heroButtonSx = {
+    borderRadius: 999,
+    px: 2.5,
+    py: 1.2,
+    textTransform: "none",
+    fontWeight: 800,
+    boxShadow: "none",
+    bgcolor: "#fff",
+    color: theme.palette.primary.dark,
+    "&:hover": {
+      boxShadow: "none",
+      bgcolor: alpha("#fff", 0.92),
+    },
+  };
+
+  const heroOutlineSx = {
+    borderRadius: 999,
+    px: 2.5,
+    py: 1.2,
+    textTransform: "none",
+    fontWeight: 800,
+    color: "#fff",
+    borderColor: alpha("#fff", 0.35),
+    "&:hover": {
+      borderColor: "#fff",
+      bgcolor: alpha("#fff", 0.08),
+    },
+  };
+
+  const surfaceSx = {
+    borderRadius: 4,
+    border: `1px solid ${alpha(theme.palette.divider, 0.8)}`,
+    bgcolor: alpha(theme.palette.background.paper, 0.92),
+    backdropFilter: "blur(12px)",
+    boxShadow: "0 18px 42px rgba(15, 23, 42, 0.08)",
+  };
+
+  const tableShellSx = {
+    ...surfaceSx,
+    p: { xs: 1.5, md: 2 },
+    overflow: "hidden",
+  };
+
+  const handleView = (invoice) => {
+    setSelected(invoice);
     setShowDetails(true);
   };
 
@@ -199,32 +391,33 @@ export default function Billing() {
   };
 
   const openCreate = () => {
-    setInvoiceForm(emptyInvoiceForm);
-    if (appointments.length === 0) fetchAppointments();
+    setInvoiceForm(createEmptyInvoiceForm());
     setShowEditor(true);
   };
 
-  const openEdit = (inv) => {
+  const openEdit = (invoice) => {
     setInvoiceForm({
-      _id: inv._id,
-      appointmentId: inv.appointmentId?._id || inv.appointmentId || "",
-      patientId: inv.patientId?._id || inv.patientId || "",
-      doctorId: inv.doctorId?._id || inv.doctorId || "",
-      patientName: getPatientName(inv),
-      doctorName: getDoctorName(inv),
-      invoiceDate: inv.invoiceDate ? String(inv.invoiceDate).slice(0, 10) : "",
-      gstPercent: inv.gstPercent ?? 0,
-      discountAmount: inv.discountAmount ?? 0,
-      paidAmount: inv.paidAmount ?? 0,
+      _id: invoice._id,
+      appointmentId: invoice.appointmentId?._id || invoice.appointmentId || "",
+      patientId: invoice.patientId?._id || invoice.patientId || "",
+      doctorId: invoice.doctorId?._id || invoice.doctorId || "",
+      patientName: getInvoicePatientName(invoice),
+      doctorName: getInvoiceDoctorName(invoice),
+      invoiceDate: invoice.invoiceDate
+        ? formatDateInput(invoice.invoiceDate)
+        : "",
+      gstPercent: invoice.gstPercent ?? 0,
+      discountAmount: invoice.discountAmount ?? 0,
+      paidAmount: invoice.paidAmount ?? 0,
       items:
-        (inv.items || []).length > 0
-          ? inv.items.map((it) => ({
-              type: it.type ?? "Other",
-              description: it.description ?? "",
-              qty: it.qty ?? 1,
-              price: it.price ?? 0,
+        (invoice.items || []).length > 0
+          ? invoice.items.map((item) => ({
+              type: item.type || "Other",
+              description: item.description || "",
+              qty: item.qty ?? 1,
+              price: item.price ?? 0,
             }))
-          : emptyInvoiceForm.items,
+          : createEmptyInvoiceForm().items,
     });
     setShowEditor(true);
   };
@@ -232,74 +425,95 @@ export default function Billing() {
   const closeEditor = () => {
     if (isSaving) return;
     setShowEditor(false);
-    setInvoiceForm(emptyInvoiceForm);
+    setInvoiceForm(createEmptyInvoiceForm());
   };
 
-  const handleEditorChange = (e) => {
-    setInvoiceForm((f) => ({ ...f, [e.target.name]: e.target.value }));
+  const handleEditorChange = (event) => {
+    const { name, value } = event.target;
+    setInvoiceForm((form) => ({ ...form, [name]: value }));
   };
 
-  const handleAppointmentChange = (e) => {
-    const appointmentId = e.target.value;
-    const a = availableAppointments.find(
-      (x) => String(x._id) === String(appointmentId)
+  const handleAppointmentChange = (event) => {
+    const appointmentId = event.target.value;
+    const appointment = availableAppointments.find(
+      (item) => String(item._id) === String(appointmentId),
     );
-    setInvoiceForm((f) => ({
-      ...f,
+
+    setInvoiceForm((form) => ({
+      ...form,
       appointmentId,
-      patientId: a?.patientId ?? "",
-      doctorId: a?.doctorId ?? "",
-      patientName: a?.patientName ?? f.patientName,
-      doctorName: a?.doctorName ?? f.doctorName,
+      patientId: appointment?.patient?._id || appointment?.patient || "",
+      doctorId: appointment?.doctor?._id || appointment?.doctor || "",
+      patientName:
+        appointment?.patient?.name ||
+        appointment?.patientName ||
+        form.patientName,
+      doctorName:
+        appointment?.doctor?.name || appointment?.doctorName || form.doctorName,
+      invoiceDate: appointment?.date
+        ? formatDateInput(appointment.date)
+        : form.invoiceDate,
       items: [
         {
           type: "Consultation",
           description: "Consultation",
           qty: 1,
-          price: Number(a?.doctorId?.fees || 0) || 0,
+          price: Number(appointment?.doctor?.fees || 0) || 0,
         },
       ],
     }));
   };
 
-  const updateItem = (idx, key, value) => {
-    setInvoiceForm((f) => {
-      const items = [...(f.items || [])];
-      items[idx] = { ...items[idx], [key]: value };
-      return { ...f, items };
+  const updateItem = (index, key, value) => {
+    setInvoiceForm((form) => {
+      const items = [...(form.items || [])];
+      items[index] = { ...items[index], [key]: value };
+      return { ...form, items };
     });
   };
 
   const addItem = () => {
-    setInvoiceForm((f) => ({
-      ...f,
+    setInvoiceForm((form) => ({
+      ...form,
       items: [
-        ...(f.items || []),
+        ...(form.items || []),
         { type: "Other", description: "", qty: 1, price: 0 },
       ],
     }));
   };
 
-  const removeItem = (idx) => {
-    setInvoiceForm((f) => {
-      const items = [...(f.items || [])];
-      items.splice(idx, 1);
-      return { ...f, items: items.length ? items : emptyInvoiceForm.items };
+  const removeItem = (index) => {
+    setInvoiceForm((form) => {
+      const items = [...(form.items || [])];
+      items.splice(index, 1);
+      return {
+        ...form,
+        items: items.length
+          ? items
+          : [
+              {
+                type: "Consultation",
+                description: "Consultation",
+                qty: 1,
+                price: 0,
+              },
+            ],
+      };
     });
   };
 
   const normalizeItemsForSave = () => {
     const items = (invoiceForm.items || [])
-      .map((it) => ({
-        type: it.type || "Other",
-        description: String(it.description || "").trim(),
-        qty: Number(it.qty || 0),
-        price: Number(it.price || 0),
+      .map((item) => ({
+        type: item.type || "Other",
+        description: String(item.description || "").trim(),
+        qty: Number(item.qty || 0),
+        price: Number(item.price || 0),
       }))
-      .filter((it) => it.description !== "");
+      .filter((item) => item.description !== "");
 
-    for (const it of items) {
-      if (it.qty <= 0 || it.price < 0) {
+    for (const item of items) {
+      if (item.qty <= 0 || item.price < 0) {
         return { error: "Quantity must be >= 1 and price must be >= 0." };
       }
     }
@@ -307,8 +521,8 @@ export default function Billing() {
     return { items };
   };
 
-  const saveInvoice = async (e) => {
-    e.preventDefault();
+  const saveInvoice = async (event) => {
+    event.preventDefault();
 
     if (!invoiceForm._id && !invoiceForm.appointmentId) {
       showToast("Please select an appointment.", "error");
@@ -342,7 +556,7 @@ export default function Billing() {
     setIsSaving(true);
     try {
       const payload = {
-        appointmentId: invoiceForm.appointmentId,
+        appointmentId: invoiceForm.appointmentId || undefined,
         patientId: invoiceForm.patientId || undefined,
         doctorId: invoiceForm.doctorId || undefined,
         patientName: invoiceForm.patientName,
@@ -356,97 +570,96 @@ export default function Billing() {
         paidAmount,
       };
 
-      let saved;
-      if (invoiceForm._id) {
-        saved = (
-          await axios.put(
-            `${API_BASE_URL}/invoices/update/${invoiceForm._id}`,
-            payload
-          )
-        ).data;
-        showToast("Invoice updated.", "success");
-      } else {
-        saved = (
-          await axios.post(`${API_BASE_URL}/invoices/createInvoice`, payload)
-        ).data;
-        showToast("Invoice created.", "success");
-      }
+      const response = invoiceForm._id
+        ? await api.put(`/admin/invoices/update/${invoiceForm._id}`, payload)
+        : await api.post("/admin/invoices/create", payload);
+      const saved = response.data;
 
       setInvoices((list) => {
-        const exists = list.some((x) => x._id === saved._id);
-        if (exists) return list.map((x) => (x._id === saved._id ? saved : x));
+        const exists = list.some((item) => item._id === saved._id);
+        if (exists) {
+          return list.map((item) => (item._id === saved._id ? saved : item));
+        }
         return [saved, ...list];
       });
 
-      fetchAppointments();
+      await fetchAppointments();
+      showToast(
+        invoiceForm._id ? "Invoice updated." : "Invoice created.",
+        "success",
+      );
       closeEditor();
-    } catch (err) {
-      console.error("Failed to save invoice", err);
-      showToast("Failed to save invoice.", "error");
+    } catch (error) {
+      console.error("Failed to save invoice", error);
+      showToast(getErrorMessage(error, "Failed to save invoice."), "error");
     } finally {
       setIsSaving(false);
     }
   };
 
-  const setPaidAmount = async (inv, paidAmount) => {
+  const setPaidAmount = async (invoice, paidAmount) => {
     try {
-      const res = await axios.patch(
-        `${API_BASE_URL}/invoices/${inv._id}/payment`,
-        { paidAmount }
-      );
+      const response = await api.patch(`/admin/invoices/${invoice._id}/payment`, {
+        paidAmount,
+      });
       showToast("Payment updated.", "success");
       setInvoices((list) =>
-        list.map((x) => (x._id === inv._id ? res.data : x))
+        list.map((item) => (item._id === invoice._id ? response.data : item)),
       );
-      if (selected?._id === inv._id) setSelected(res.data);
-    } catch (err) {
-      console.error("Failed to update payment", err);
-      showToast("Failed to update payment.", "error");
+      if (selected?._id === invoice._id) {
+        setSelected(response.data);
+      }
+    } catch (error) {
+      console.error("Failed to update payment", error);
+      showToast(getErrorMessage(error, "Failed to update payment."), "error");
     }
   };
-  const markPaidToggle = async (inv) => {
-    if (getStatus(inv) === "Paid") {
+
+  const markPaidToggle = async (invoice) => {
+    if (getStatus(invoice) === "Paid") {
       showToast(
         "Invoice already paid. Duplicate payments are not allowed.",
-        "warning"
+        "warning",
       );
       return;
     }
 
-    const total = Number(inv.totalAmount || 0);
-    await setPaidAmount(inv, total);
+    await setPaidAmount(invoice, Number(invoice.totalAmount || 0));
   };
 
   const handleDelete = async (id) => {
     try {
-      await axios.delete(`${API_BASE_URL}/invoices/${id}`);
+      await api.delete(`/admin/invoices/delete/${id}`);
+      setInvoices((list) => list.filter((item) => item._id !== id));
+      await fetchAppointments();
+      if (selected?._id === id) {
+        handleCloseDetails();
+      }
       showToast("Invoice deleted.", "success");
-      setInvoices((list) => list.filter((x) => x._id !== id));
-      if (selected?._id === id) handleCloseDetails();
-    } catch (err) {
-      console.error("Failed to delete invoice", err);
-      showToast("Failed to delete invoice.", "error");
+    } catch (error) {
+      console.error("Failed to delete invoice", error);
+      showToast(getErrorMessage(error, "Failed to delete invoice."), "error");
     }
   };
 
-  const downloadAsPdf = (inv) => {
-    const patientName = getPatientName(inv);
-    const doctorName = getDoctorName(inv);
-    const apptDate = inv?.appointmentId?.appointmentDate;
+  const downloadAsPdf = (invoice) => {
+    const patientName = getInvoicePatientName(invoice);
+    const doctorName = getInvoiceDoctorName(invoice);
+    const appointmentSlot = formatAppointmentSlot(invoice?.appointmentId);
 
-    const rows = (inv.items || [])
+    const rows = (invoice.items || [])
       .map(
-        (it) => `
+        (item) => `
           <tr>
-            <td>${it.type || ""}</td>
-            <td>${it.description || ""}</td>
-            <td style="text-align:right">${it.qty ?? 1}</td>
-            <td style="text-align:right">${Number(it.price || 0).toFixed(2)}</td>
+            <td>${item.type || ""}</td>
+            <td>${item.description || ""}</td>
+            <td style="text-align:right">${item.qty ?? 1}</td>
+            <td style="text-align:right">${Number(item.price || 0).toFixed(2)}</td>
             <td style="text-align:right">${(
-              Number(it.qty || 0) * Number(it.price || 0)
+              Number(item.qty || 0) * Number(item.price || 0)
             ).toFixed(2)}</td>
           </tr>
-        `
+        `,
       )
       .join("\n");
 
@@ -455,16 +668,16 @@ export default function Billing() {
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>${inv.invoiceNumber || "Invoice"}</title>
+  <title>${invoice.invoiceNumber || "Invoice"}</title>
   <style>
-    body{font-family: Arial, sans-serif; padding:24px;}
-    h1{margin:0 0 8px 0; font-size:20px;}
-    .meta{margin:0 0 16px 0; font-size:12px; color:#333;}
-    table{width:100%; border-collapse:collapse; margin-top:12px;}
-    th,td{border:1px solid #ddd; padding:8px; font-size:12px;}
-    th{background:#f5f5f5; text-align:left;}
-    .totals{margin-top:12px; width:320px; margin-left:auto;}
-    .totals td{border:none; padding:4px 0;}
+    body{font-family:Arial,sans-serif;padding:24px;color:#111;}
+    h1{margin:0 0 8px 0;font-size:20px;}
+    .meta{margin:0 0 16px 0;font-size:12px;color:#333;line-height:1.6;}
+    table{width:100%;border-collapse:collapse;margin-top:12px;}
+    th,td{border:1px solid #ddd;padding:8px;font-size:12px;}
+    th{background:#f5f5f5;text-align:left;}
+    .totals{margin-top:12px;width:320px;margin-left:auto;}
+    .totals td{border:none;padding:4px 0;}
     .right{text-align:right;}
     @media print{button{display:none;}}
   </style>
@@ -472,12 +685,12 @@ export default function Billing() {
 <body>
   <h1>Hospital Invoice</h1>
   <div class="meta">
-    <div><b>Invoice No:</b> ${inv.invoiceNumber || "-"}</div>
-    <div><b>Invoice Date:</b> ${formatDateTime(inv.invoiceDate)}</div>
+    <div><b>Invoice No:</b> ${invoice.invoiceNumber || "-"}</div>
+    <div><b>Invoice Date:</b> ${formatDateTime(invoice.invoiceDate)}</div>
     <div><b>Patient:</b> ${patientName}</div>
     <div><b>Doctor:</b> ${doctorName}</div>
-    <div><b>Appointment:</b> ${apptDate ? formatDateTime(apptDate) : "-"}</div>
-    <div><b>Status:</b> ${getStatus(inv)}</div>
+    <div><b>Appointment:</b> ${appointmentSlot}</div>
+    <div><b>Status:</b> ${getStatus(invoice)}</div>
   </div>
 
   <table>
@@ -491,16 +704,19 @@ export default function Billing() {
       </tr>
     </thead>
     <tbody>
-      ${rows || "<tr><td colspan='5' style='text-align:center'>No items</td></tr>"}
+      ${
+        rows ||
+        "<tr><td colspan='5' style='text-align:center'>No items</td></tr>"
+      }
     </tbody>
   </table>
 
   <table class="totals">
-    <tr><td>Subtotal</td><td class="right">${Number(inv.subtotalAmount || 0).toFixed(2)}</td></tr>
-    <tr><td>GST (${Number(inv.gstPercent || 0).toFixed(2)}%)</td><td class="right">${Number(inv.gstAmount || 0).toFixed(2)}</td></tr>
-    <tr><td>Discount</td><td class="right">${Number(inv.discountAmount || 0).toFixed(2)}</td></tr>
-    <tr><td><b>Total</b></td><td class="right"><b>${Number(inv.totalAmount || 0).toFixed(2)}</b></td></tr>
-    <tr><td>Paid</td><td class="right">${Number(inv.paidAmount || 0).toFixed(2)}</td></tr>
+    <tr><td>Subtotal</td><td class="right">${Number(invoice.subtotalAmount || 0).toFixed(2)}</td></tr>
+    <tr><td>GST (${Number(invoice.gstPercent || 0).toFixed(2)}%)</td><td class="right">${Number(invoice.gstAmount || 0).toFixed(2)}</td></tr>
+    <tr><td>Discount</td><td class="right">${Number(invoice.discountAmount || 0).toFixed(2)}</td></tr>
+    <tr><td><b>Total</b></td><td class="right"><b>${Number(invoice.totalAmount || 0).toFixed(2)}</b></td></tr>
+    <tr><td>Paid</td><td class="right">${Number(invoice.paidAmount || 0).toFixed(2)}</td></tr>
   </table>
 </body>
 </html>`;
@@ -540,587 +756,1027 @@ export default function Billing() {
         }
       };
 
-      if (iframe.contentWindow) iframe.contentWindow.onafterprint = cleanup;
+      if (iframe.contentWindow) {
+        iframe.contentWindow.onafterprint = cleanup;
+      }
       setTimeout(doPrint, 100);
-    } catch (e) {
-      console.error("PDF print failed", e);
+    } catch (error) {
+      console.error("PDF print failed", error);
       showToast(
         "PDF export blocked by the browser. Allow popups/print and try again.",
-        "error"
+        "error",
       );
     }
   };
 
   return (
-    <Box sx={{ px: 2, py: 3 }}>
-      <Stack
-        direction={{ xs: "column", md: "row" }}
-        alignItems={{ xs: "stretch", md: "center" }}
-        justifyContent="space-between"
-        spacing={1}
-        sx={{ mb: 2 }}
-      >
-        <Typography variant="h5" fontWeight={700}>
-          Billing / Invoices
-        </Typography>
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-          <TextField
-            size="small"
-            label="Search (patient/doctor/invoice)"
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-          />
-          <FormControl size="small" sx={{ minWidth: 160 }}>
-            <InputLabel id="invoice-status-filter">Status</InputLabel>
-            <Select
-              labelId="invoice-status-filter"
-              label="Status"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <MenuItem value="All">All</MenuItem>
-              {statusOptions.map((s) => (
-                <MenuItem key={s} value={s}>
-                  {s}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <Button variant="outlined" onClick={fetchInvoices}>
-            Refresh
-          </Button>
-          <Button variant="contained" onClick={openCreate}>
-            Create Invoice
-          </Button>
-        </Stack>
-      </Stack>
-
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Invoice</TableCell>
-              <TableCell>Patient</TableCell>
-              <TableCell>Doctor</TableCell>
-              <TableCell>Appointment</TableCell>
-              <TableCell>Invoice Date</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell>Amount</TableCell>
-              <TableCell align="right">Action</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {filteredInvoices.map((inv) => (
-              <TableRow key={inv._id} hover>
-                <TableCell>{inv.invoiceNumber || "-"}</TableCell>
-                <TableCell>{getPatientName(inv)}</TableCell>
-                <TableCell>{getDoctorName(inv)}</TableCell>
-                <TableCell>
-                  {formatDateTime(inv?.appointmentId?.appointmentDate)}
-                </TableCell>
-                <TableCell>{formatDateTime(inv.invoiceDate)}</TableCell>
-                <TableCell>{statusChip(getStatus(inv))}</TableCell>
-                <TableCell>{formatMoney(inv.totalAmount)}</TableCell>
-                <TableCell align="right">
-                  <IconButton
-                    aria-label="view"
-                    onClick={() => handleView(inv)}
-                    size="small"
-                  >
-                    <VisibilityIcon fontSize="small" />
-                  </IconButton>
-                  <IconButton
-                    aria-label="pdf"
-                    onClick={() => downloadAsPdf(inv)}
-                    size="small"
-                  >
-                    <PictureAsPdfIcon fontSize="small" />
-                  </IconButton>
-                  <IconButton
-                    aria-label="edit"
-                    onClick={() => openEdit(inv)}
-                    size="small"
-                  >
-                    <EditIcon fontSize="small" />
-                  </IconButton>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    sx={{ ml: 1 }}
-                    onClick={() => markPaidToggle(inv)}
-                    disabled={getStatus(inv) === "Paid"}
-                  >
-                    {getStatus(inv) === "Paid" ? "Paid" : "Mark Paid"}
-                  </Button>
-                  <IconButton
-                    aria-label="delete"
-                    onClick={() => handleDelete(inv._id)}
-                    size="small"
-                    color="error"
-                    sx={{ ml: 1 }}
-                  >
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </TableCell>
-              </TableRow>
-            ))}
-            {filteredInvoices.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={8} align="center">
-                  <Typography variant="body2" color="text.secondary">
-                    No invoices found
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
-
-      <Dialog
-        open={showEditor}
-        onClose={closeEditor}
-        fullWidth
-        maxWidth="md"
-      >
-        <Box component="form" onSubmit={saveInvoice}>
-          <DialogTitle>
-            {invoiceForm._id ? "Update Invoice" : "Create Invoice"}
-          </DialogTitle>
-          <DialogContent dividers>
-            <Stack spacing={2} sx={{ pt: 1 }}>
-              {!invoiceForm._id && (
-                <FormControl fullWidth required size="small">
-                  <InputLabel id="invoice-appointment-label">
-                    Appointment
-                  </InputLabel>
-                  <Select
-                    labelId="invoice-appointment-label"
-                    label="Appointment"
-                    value={invoiceForm.appointmentId}
-                    onChange={handleAppointmentChange}
-                  >
-                    <MenuItem value="" disabled>
-                      Select appointment
-                    </MenuItem>
-                    {availableAppointments.map((a) => (
-                      <MenuItem key={a._id} value={a._id}>
-                        {a.patientName} - {a.doctorName} ({formatDateTime(
-                          a.appointmentDate
-                        )})
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              )}
-
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                <TextField
-                  label="Patient"
-                  name="patientName"
-                  size="small"
-                  value={invoiceForm.patientName}
-                  onChange={handleEditorChange}
-                  fullWidth
-                  required
-                />
-                <TextField
-                  label="Doctor"
-                  name="doctorName"
-                  size="small"
-                  value={invoiceForm.doctorName}
-                  onChange={handleEditorChange}
-                  fullWidth
-                  required
-                />
-              </Stack>
-
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                <TextField
-                  label="Invoice Date"
-                  name="invoiceDate"
-                  type="date"
-                  size="small"
-                  value={invoiceForm.invoiceDate}
-                  onChange={handleEditorChange}
-                  fullWidth
-                  InputLabelProps={{ shrink: true }}
-                />
-                <TextField
-                  label="GST %"
-                  name="gstPercent"
-                  type="number"
-                  size="small"
-                  value={invoiceForm.gstPercent}
-                  onChange={handleEditorChange}
-                  fullWidth
-                  inputProps={{ min: 0, step: "0.01" }}
-                />
-                <TextField
-                  label="Discount"
-                  name="discountAmount"
-                  type="number"
-                  size="small"
-                  value={invoiceForm.discountAmount}
-                  onChange={handleEditorChange}
-                  fullWidth
-                  inputProps={{ min: 0, step: "0.01" }}
-                />
-              </Stack>
-
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                <TextField
-                  label="Paid Amount"
-                  name="paidAmount"
-                  type="number"
-                  size="small"
-                  value={invoiceForm.paidAmount}
-                  onChange={handleEditorChange}
-                  fullWidth
-                  inputProps={{ min: 0, step: "0.01" }}
-                />
-                <TextField
-                  label="Due"
-                  size="small"
-                  value={formatMoney(invoiceCalc.due)}
-                  fullWidth
-                  InputProps={{ readOnly: true }}
-                />
-                <TextField
-                  label="Total"
-                  size="small"
-                  value={formatMoney(invoiceCalc.total)}
-                  fullWidth
-                  InputProps={{ readOnly: true }}
-                />
-              </Stack>
-
-              <Box>
-                <Stack
-                  direction="row"
-                  alignItems="center"
-                  justifyContent="space-between"
-                  sx={{ mb: 1 }}
-                >
-                  <Typography variant="subtitle2">Items</Typography>
-                  <Button
-                    size="small"
-                    startIcon={<AddIcon />}
-                    onClick={addItem}
-                  >
-                    Add Item
-                  </Button>
-                </Stack>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ width: 150 }}>Type</TableCell>
-                      <TableCell>Description</TableCell>
-                      <TableCell sx={{ width: 100 }}>Qty</TableCell>
-                      <TableCell sx={{ width: 140 }}>Price</TableCell>
-                      <TableCell sx={{ width: 60 }} />
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {(invoiceForm.items || []).map((it, idx) => (
-                      <TableRow key={idx}>
-                        <TableCell>
-                          <FormControl fullWidth size="small">
-                            <Select
-                              value={it.type || "Other"}
-                              onChange={(e) =>
-                                updateItem(idx, "type", e.target.value)
-                              }
-                            >
-                              {itemTypeOptions.map((opt) => (
-                                <MenuItem key={opt} value={opt}>
-                                  {opt}
-                                </MenuItem>
-                              ))}
-                            </Select>
-                          </FormControl>
-                        </TableCell>
-                        <TableCell>
-                          <TextField
-                            size="small"
-                            value={it.description}
-                            onChange={(e) =>
-                              updateItem(idx, "description", e.target.value)
-                            }
-                            fullWidth
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <TextField
-                            size="small"
-                            type="number"
-                            inputProps={{ min: 1 }}
-                            value={it.qty}
-                            onChange={(e) =>
-                              updateItem(idx, "qty", e.target.value)
-                            }
-                            fullWidth
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <TextField
-                            size="small"
-                            type="number"
-                            inputProps={{ min: 0, step: "0.01" }}
-                            value={it.price}
-                            onChange={(e) =>
-                              updateItem(idx, "price", e.target.value)
-                            }
-                            fullWidth
-                          />
-                        </TableCell>
-                        <TableCell align="right">
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => removeItem(idx)}
-                            aria-label="remove"
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-
-                    <TableRow>
-                      <TableCell colSpan={3} />
-                      <TableCell>
-                        <Typography variant="subtitle2">Subtotal</Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography variant="subtitle2">
-                          {formatMoney(invoiceCalc.subtotal)}
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell colSpan={3} />
-                      <TableCell>
-                        <Typography variant="subtitle2">GST</Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography variant="subtitle2">
-                          {formatMoney(invoiceCalc.gstAmount)}
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell colSpan={3} />
-                      <TableCell>
-                        <Typography variant="subtitle2">Total</Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Typography variant="subtitle2">
-                          {formatMoney(invoiceCalc.total)}
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
-              </Box>
-            </Stack>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={closeEditor} disabled={isSaving}>
-              Cancel
-            </Button>
-            <Button type="submit" variant="contained" disabled={isSaving}>
-              {isSaving ? "Saving..." : invoiceForm._id ? "Update" : "Create"}
-            </Button>
-          </DialogActions>
-        </Box>
-      </Dialog>
-
-      <Dialog
-        open={showDetails}
-        onClose={handleCloseDetails}
-        fullWidth
-        maxWidth="sm"
-      >
-        <DialogTitle>Invoice Details</DialogTitle>
-        <DialogContent dividers>
-          {!selected ? (
-            <Typography variant="body2" color="text.secondary">
-              No invoice selected.
-            </Typography>
-          ) : (
-            <Stack spacing={1.25}>
-              <Typography variant="body2">
-                <b>Invoice:</b> {selected.invoiceNumber || "-"}
-              </Typography>
-              <Typography variant="body2">
-                <b>Patient:</b> {getPatientName(selected)}
-              </Typography>
-              <Typography variant="body2">
-                <b>Doctor:</b> {getDoctorName(selected)}
-              </Typography>
-              <Typography variant="body2">
-                <b>Appointment:</b>{" "}
-                {formatDateTime(selected?.appointmentId?.appointmentDate)}
-              </Typography>
-              <Typography variant="body2">
-                <b>Invoice Date:</b> {formatDateTime(selected.invoiceDate)}
-              </Typography>
-              <Typography variant="body2">
-                <b>Status:</b> {getStatus(selected)}
-              </Typography>
-              <Typography variant="body2">
-                <b>Total:</b> {formatMoney(selected.totalAmount)}
-              </Typography>
-              <Typography variant="body2">
-                <b>Paid:</b> {formatMoney(selected.paidAmount)}
-              </Typography>
-
-              <Box sx={{ mt: 1 }}>
-                <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                  Items
-                </Typography>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Type</TableCell>
-                      <TableCell>Description</TableCell>
-                      <TableCell>Qty</TableCell>
-                      <TableCell>Price</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {(selected.items || []).map((it, idx) => (
-                      <TableRow key={idx}>
-                        <TableCell>{it.type ?? "-"}</TableCell>
-                        <TableCell>{it.description}</TableCell>
-                        <TableCell>{it.qty ?? 1}</TableCell>
-                        <TableCell>{formatMoney(it.price)}</TableCell>
-                      </TableRow>
-                    ))}
-                    {(selected.items || []).length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={4} align="center">
-                          <Typography variant="body2" color="text.secondary">
-                            No items
-                          </Typography>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </Box>
-            </Stack>
-          )}
-        </DialogContent>
-        <DialogActions>
-          {selected && STRIPE_PUBLISHABLE_KEY && getStatus(selected) !== "Paid" && getDue(selected) > 0 && (
-            <Button variant="contained" onClick={() => setShowPay(true)}>
-              Pay (Stripe)
-            </Button>
-          )}
-          {selected && (
-            <Button variant="contained" onClick={() => markPaidToggle(selected)}
-              disabled={getStatus(selected) === "Paid"}>
-              {getStatus(selected) === "Paid" ? "Paid" : "Mark Paid"}
-            </Button>
-          )}
-          {selected && (
-            <Button variant="outlined" onClick={() => downloadAsPdf(selected)}>
-              Download PDF
-            </Button>
-          )}
-          <Button onClick={handleCloseDetails}>Close</Button>
-        </DialogActions>
-      </Dialog>
-
-      <PayInvoiceDialog
-        open={showPay}
-        onClose={() => setShowPay(false)}
-        invoice={selected}
-        apiBaseUrl={API_BASE_URL}
-        publishableKey={STRIPE_PUBLISHABLE_KEY}
-        showToast={showToast}
-        onPaid={async (invoiceId) => {
-          const inv = invoices.find((x) => x._id === invoiceId) || selected;
-          if (inv) await setPaidAmount(inv, Number(inv.totalAmount || 0));
-          await fetchInvoices();
+    <Box
+      sx={{
+        position: "relative",
+        minHeight: "100%",
+        px: { xs: 1.5, md: 2.5 },
+        py: { xs: 2, md: 3 },
+        overflow: "hidden",
+        background: `radial-gradient(circle at top left, ${alpha(theme.palette.primary.main, 0.12)} 0, transparent 32%), radial-gradient(circle at top right, ${alpha(theme.palette.info.main, 0.12)} 0, transparent 28%), linear-gradient(180deg, ${alpha(theme.palette.primary.main, 0.05)} 0%, #f8fafc 22%, #ffffff 56%, ${alpha(theme.palette.secondary.main, 0.04)} 100%)`,
+      }}
+    >
+      <Box
+        sx={{
+          position: "absolute",
+          inset: "-7% auto auto -8%",
+          width: 260,
+          height: 260,
+          borderRadius: "50%",
+          bgcolor: alpha(theme.palette.primary.main, 0.1),
+          filter: "blur(26px)",
+          pointerEvents: "none",
+        }}
+      />
+      <Box
+        sx={{
+          position: "absolute",
+          right: "-6%",
+          bottom: "-10%",
+          width: 340,
+          height: 340,
+          borderRadius: "50%",
+          bgcolor: alpha(theme.palette.info.main, 0.08),
+          filter: "blur(36px)",
+          pointerEvents: "none",
         }}
       />
 
-      <Snackbar
-        open={toast.open}
-        autoHideDuration={3000}
-        onClose={() => setToast((t) => ({ ...t, open: false }))}
-        anchorOrigin={{ vertical: "top", horizontal: "right" }}
-        sx={{ mt: 2 }}
-      >
-        <Alert
-          onClose={() => setToast((t) => ({ ...t, open: false }))}
-          severity={toast.severity}
-          variant="filled"
-          sx={{ width: "100%" }}
+      <Stack spacing={3} sx={{ position: "relative", zIndex: 1 }}>
+        <Grid container spacing={2}>
+          <Grid item xs={12} sm={6} xl={3}>
+            <BillingStatCard
+              title="Total invoices"
+              value={billingSummary.totalInvoices}
+              note={`Paid ${billingSummary.paidInvoices} | Partial ${billingSummary.partialInvoices}`}
+              icon={<ReceiptLongIcon />}
+              accent={theme.palette.primary.main}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} xl={3}>
+            <BillingStatCard
+              title="Collected"
+              value={formatMoney(billingSummary.totalCollected)}
+              note={`${billingSummary.collectionRate}% of billed amount collected`}
+              icon={<PaymentsIcon />}
+              accent={theme.palette.success.main}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} xl={3}>
+            <BillingStatCard
+              title="Outstanding"
+              value={formatMoney(billingSummary.totalDue)}
+              note={`Open balance across ${billingSummary.unpaidInvoices} invoices`}
+              icon={<PendingActionsIcon />}
+              accent={theme.palette.warning.main}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} xl={3}>
+            <BillingStatCard
+              title="Ready to invoice"
+              value={billingSummary.readyAppointments}
+              note="Appointments waiting for billing"
+              icon={<EventAvailableIcon />}
+              accent={theme.palette.info.main}
+            />
+          </Grid>
+        </Grid>
+
+<Stack spacing={3} sx={{ position: "relative", zIndex: 1 }}>
+  {/* Search + Filter + Create */}
+  <Paper
+    elevation={0}
+    sx={{
+      p: 3,
+      borderRadius: 4,
+      border: "1px solid #e5e7eb",
+      background: "#fff",
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      flexWrap: "wrap",
+      gap: 2,
+    }}
+  >
+    <Stack direction="row" spacing={2} flexWrap="wrap">
+      <TextField
+        size="small"
+        placeholder="Search invoice / patient / doctor"
+        value={searchText}
+        onChange={(e) => setSearchText(e.target.value)}
+        sx={{
+          minWidth: 260,
+          "& .MuiOutlinedInput-root": {
+            borderRadius: 3,
+          },
+        }}
+      />
+
+      <FormControl size="small" sx={{ minWidth: 180 }}>
+        <InputLabel>Status</InputLabel>
+
+        <Select
+          value={statusFilter}
+          label="Status"
+          onChange={(e) => setStatusFilter(e.target.value)}
+          sx={{ borderRadius: 3 }}
         >
-          {toast.message}
-        </Alert>
-      </Snackbar>
+          <MenuItem value="All">All</MenuItem>
+
+          {statusOptions.map((s) => (
+            <MenuItem key={s} value={s}>
+              {s}
+            </MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+    </Stack>
+
+    <Button
+      variant="contained"
+      startIcon={<AddIcon />}
+      onClick={openCreate}
+      sx={{
+        borderRadius: 999,
+        px: 3,
+        py: 1.2,
+        fontWeight: 700,
+        textTransform: "none",
+        boxShadow: "none",
+      }}
+    >
+      Create Invoice
+    </Button>
+  </Paper>
+
+  {/* Table */}
+  <Paper
+    elevation={0}
+    sx={{
+      borderRadius: 4,
+      overflow: "hidden",
+      border: "1px solid #e5e7eb",
+    }}
+  >
+    {filteredInvoices.length > 0 ? (
+      <TableContainer>
+        <Table>
+          <TableHead>
+            <TableRow
+              sx={{
+                background:
+                  "linear-gradient(90deg, #1976d2 0%, #42a5f5 100%)",
+              }}
+            >
+              {[
+                "Invoice",
+                "Patient",
+                "Doctor",
+                "Appointment",
+                "Invoice Date",
+                "Status",
+                "Amount",
+                "Action",
+              ].map((head) => (
+                <TableCell
+                  key={head}
+                  sx={{
+                    color: "#fff",
+                    fontWeight: 700,
+                    whiteSpace: "nowrap",
+                    borderBottom: "none",
+                  }}
+                  align={head === "Action" ? "right" : "left"}
+                >
+                  {head}
+                </TableCell>
+              ))}
+            </TableRow>
+          </TableHead>
+
+          <TableBody>
+            {filteredInvoices.map((invoice) => (
+              <TableRow
+                key={invoice._id}
+                hover
+                sx={{
+                  transition: "0.3s",
+                  "&:hover": {
+                    backgroundColor: "#f5f9ff",
+                  },
+                }}
+              >
+                <TableCell sx={{ fontWeight: 700 }}>
+                  {invoice.invoiceNumber || "-"}
+                </TableCell>
+
+                <TableCell>
+                  {getInvoicePatientName(invoice)}
+                </TableCell>
+
+                <TableCell>
+                  {getInvoiceDoctorName(invoice)}
+                </TableCell>
+
+                <TableCell>
+                  {formatAppointmentSlot(invoice?.appointmentId)}
+                </TableCell>
+
+                <TableCell>
+                  {formatDateTime(invoice.invoiceDate)}
+                </TableCell>
+
+                <TableCell>
+                  {getStatusChip(getStatus(invoice))}
+                </TableCell>
+
+                <TableCell sx={{ fontWeight: 700 }}>
+                  {formatMoney(invoice.totalAmount)}
+                </TableCell>
+
+                <TableCell align="right">
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    justifyContent="flex-end"
+                    flexWrap="wrap"
+                  >
+                    <IconButton
+                      onClick={() => handleView(invoice)}
+                      size="small"
+                      sx={{
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 2,
+                      }}
+                    >
+                      <VisibilityIcon fontSize="small" />
+                    </IconButton>
+
+                    <IconButton
+                      onClick={() => downloadAsPdf(invoice)}
+                      size="small"
+                      sx={{
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 2,
+                      }}
+                    >
+                      <PictureAsPdfIcon fontSize="small" />
+                    </IconButton>
+
+                    <IconButton
+                      onClick={() => openEdit(invoice)}
+                      size="small"
+                      sx={{
+                        border: "1px solid #e5e7eb",
+                        borderRadius: 2,
+                      }}
+                    >
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+
+
+                    <IconButton
+                      onClick={() => handleDelete(invoice._id)}
+                      size="small"
+                      color="error"
+                      sx={{
+                        border: "1px solid #fecaca",
+                        borderRadius: 2,
+                        bgcolor: "#fef2f2",
+                      }}
+                    >
+                      <DeleteIcon fontSize="small" />
+                    </IconButton>
+                  </Stack>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
+    ) : (
+      <Box
+        sx={{
+          py: 10,
+          textAlign: "center",
+        }}
+      >
+        <Avatar
+          sx={{
+            width: 80,
+            height: 80,
+            mx: "auto",
+            mb: 2,
+            bgcolor: "#e3f2fd",
+            color: "#1976d2",
+          }}
+        >
+          <ReceiptLongIcon sx={{ fontSize: 40 }} />
+        </Avatar>
+
+        <Typography variant="h6" fontWeight={700}>
+          No invoices found
+        </Typography>
+
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          sx={{ mt: 1 }}
+        >
+          Create your first invoice to start tracking payments.
+        </Typography>
+
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={openCreate}
+          sx={{
+            mt: 3,
+            borderRadius: 999,
+            textTransform: "none",
+            fontWeight: 700,
+            boxShadow: "none",
+          }}
+        >
+          Create Invoice
+        </Button>
+      </Box>
+    )}
+  </Paper>
+</Stack>
+
+        <Dialog
+          open={showEditor}
+          onClose={closeEditor}
+          scroll="paper"
+          fullScreen={isMobile}
+          fullWidth
+          maxWidth="md"
+          PaperProps={{
+            sx: {
+              borderRadius: isMobile ? 0 : 4,
+              display: "flex",
+              flexDirection: "column",
+              maxHeight: isMobile ? "100vh" : "calc(100vh - 48px)",
+              overflow: "hidden",
+            },
+          }}
+        >
+          <Box
+            component="form"
+            onSubmit={saveInvoice}
+            sx={{
+              display: "flex",
+              flexDirection: "column",
+              flex: 1,
+              minHeight: 0,
+            }}
+          >
+            <DialogTitle
+              sx={{
+                pb: 2,
+                background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.06)} 100%)`,
+              }}
+            >
+              <Stack
+                direction="row"
+                alignItems="flex-start"
+                justifyContent="space-between"
+                spacing={2}
+              >
+                <Box>
+                  <Typography
+                    variant="overline"
+                    
+                  >
+                    Invoice Editor
+                  </Typography>
+                  <Typography
+                    variant="h5"
+                    sx={{ fontWeight: 900, lineHeight: 1.1 }}
+                  >
+                    {invoiceForm._id ? "Update invoice" : "Create invoice"}
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ mt: 0.5 }}
+                  >
+                    Connect the appointment, then fine-tune the bill before
+                    saving.
+                  </Typography>
+                </Box>
+                <Chip
+                  label={invoiceForm._id ? "Editing" : "New"}
+                  color="primary"
+                  variant="filled"
+                  size="small"
+                  sx={{ fontWeight: 800 }}
+                />
+              </Stack>
+            </DialogTitle>
+            <DialogContent
+              dividers
+              sx={{
+                bgcolor: alpha(theme.palette.background.default, 0.5),
+                flex: 1,
+                minHeight: 0,
+                overflowY: "auto",
+              }}
+            >
+              <Stack spacing={2} sx={{ pt: 1 }}>
+                {!invoiceForm._id && (
+                  <FormControl fullWidth required size="small">
+                    <InputLabel id="invoice-appointment-label">
+                      Appointment
+                    </InputLabel>
+                    <Select
+                      labelId="invoice-appointment-label"
+                      label="Appointment"
+                      value={invoiceForm.appointmentId}
+                      onChange={handleAppointmentChange}
+                    >
+                      <MenuItem value="" disabled>
+                        Select appointment
+                      </MenuItem>
+                      {availableAppointments.map((appointment) => (
+                        <MenuItem key={appointment._id} value={appointment._id}>
+                          {getAppointmentPatientName(appointment)} -{" "}
+                          {getAppointmentDoctorName(appointment)} (
+                          {formatAppointmentSlot(appointment)})
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                )}
+
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={2}> 
+                  <TextField 
+                    label="Patient"
+                    name="patientName"
+                    size="small"
+                    value={invoiceForm.patientName}
+                    onChange={handleEditorChange}
+                    fullWidth
+                    required
+                  />
+                  <TextField
+                    label="Doctor"
+                    name="doctorName"
+                    size="small"
+                    value={invoiceForm.doctorName}
+                    onChange={handleEditorChange}
+                    fullWidth
+                    required                        
+                  />
+                </Stack>          
+
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                  <TextField
+                    label="Invoice Date"
+                    name="invoiceDate"
+                    type="date"
+                    size="small"
+                    value={invoiceForm.invoiceDate}
+                    onChange={handleEditorChange}
+                    fullWidth
+                    InputLabelProps={{ shrink: true }}
+                  />
+                  <TextField
+                    label="GST %"
+                    name="gstPercent"
+                    type="number"
+                    size="small"
+                    value={invoiceForm.gstPercent}
+                    onChange={handleEditorChange}
+                    fullWidth
+                    inputProps={{ min: 0, step: "0.01" }}
+                  />
+                  <TextField
+                    label="Discount"
+                    name="discountAmount"
+                    type="number"
+                    size="small"
+                    value={invoiceForm.discountAmount}
+                    onChange={handleEditorChange}
+                    fullWidth
+                    inputProps={{ min: 0, step: "0.01" }}
+                  />
+                </Stack>
+
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                  <TextField
+                    label="Paid Amount"
+                    name="paidAmount"
+                    type="number"
+                    size="small"
+                    value={invoiceForm.paidAmount}
+                    onChange={handleEditorChange}
+                    fullWidth
+                    inputProps={{ min: 0, step: "0.01" }}
+                  />
+                  <TextField
+                    label="Due"
+                    size="small"
+                    value={formatMoney(invoiceCalc.due)}
+                    fullWidth
+                    InputProps={{ readOnly: true }}
+                  />
+                  <TextField
+                    label="Total"
+                    size="small"
+                    value={formatMoney(invoiceCalc.total)}
+                    fullWidth
+                    InputProps={{ readOnly: true }}
+                  />
+                </Stack>
+
+                <Box
+                  sx={{
+                    p: 2,
+                    borderRadius: 3,
+                    bgcolor: "#fff",
+                    border: `1px solid ${alpha(theme.palette.divider, 0.8)}`,
+                  }}
+                >
+                  <Stack
+                    direction="row"
+                    alignItems="center"
+                    justifyContent="space-between"
+                    sx={{ mb: 1 }}
+                  >
+                    <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                      Items
+                    </Typography>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<AddIcon />}
+                      onClick={addItem}
+                      sx={{
+                        textTransform: "none",
+                        fontWeight: 800,
+                        borderRadius: 999,
+                      }}
+                    >
+                      Add Item
+                    </Button>
+                  </Stack>
+                  <TableContainer
+                    sx={{ maxHeight: { xs: 300, sm: 360 }, overflowY: "auto" }}
+                  >
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ width: 150, fontWeight: 800 }}>
+                            Type
+                          </TableCell>
+                          <TableCell sx={{ fontWeight: 800 }}>
+                            Description
+                          </TableCell>
+                          <TableCell sx={{ width: 100, fontWeight: 800 }}>
+                            Qty
+                          </TableCell>
+                          <TableCell sx={{ width: 140, fontWeight: 800 }}>
+                            Price
+                          </TableCell>
+                          <TableCell sx={{ width: 60 }} />
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {(invoiceForm.items || []).map((item, index) => (
+                          <TableRow key={index}>
+                            <TableCell>
+                              <FormControl fullWidth size="small">
+                                <Select
+                                  value={item.type || "Other"}
+                                  onChange={(event) =>
+                                    updateItem(
+                                      index,
+                                      "type",
+                                      event.target.value,
+                                    )
+                                  }
+                                >
+                                  {itemTypeOptions.map((option) => (
+                                    <MenuItem key={option} value={option}>
+                                      {option}
+                                    </MenuItem>
+                                  ))}
+                                </Select>
+                              </FormControl>
+                            </TableCell>
+                            <TableCell>
+                              <TextField
+                                size="small"
+                                value={item.description}
+                                onChange={(event) =>
+                                  updateItem(
+                                    index,
+                                    "description",
+                                    event.target.value,
+                                  )
+                                }
+                                fullWidth
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <TextField
+                                size="small"
+                                type="number"
+                                inputProps={{ min: 1 }}
+                                value={item.qty}
+                                onChange={(event) =>
+                                  updateItem(index, "qty", event.target.value)
+                                }
+                                fullWidth
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <TextField
+                                size="small"
+                                type="number"
+                                inputProps={{ min: 0, step: "0.01" }}
+                                value={item.price}
+                                onChange={(event) =>
+                                  updateItem(index, "price", event.target.value)
+                                }
+                                fullWidth
+                              />
+                            </TableCell>
+                            <TableCell align="right">
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => removeItem(index)}
+                                aria-label="remove"
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+
+                        <TableRow>
+                          <TableCell colSpan={3} />
+                          <TableCell>
+                            <Typography variant="subtitle2">
+                              Subtotal
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="subtitle2">
+                              {formatMoney(invoiceCalc.subtotal)}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell colSpan={3} />
+                          <TableCell>
+                            <Typography variant="subtitle2">GST</Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="subtitle2">
+                              {formatMoney(invoiceCalc.gstAmount)}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell colSpan={3} />
+                          <TableCell>
+                            <Typography variant="subtitle2">Total</Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="subtitle2">
+                              {formatMoney(invoiceCalc.total)}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              </Stack>
+            </DialogContent>
+            <DialogActions
+              sx={{
+                px: 3,
+                py: 2,
+                bgcolor: "#fff",
+                borderTop: `1px solid ${alpha(theme.palette.divider, 0.8)}`,
+                position: "sticky",
+                bottom: 0,
+                zIndex: 1,
+              }}
+            >
+              <Button
+                onClick={closeEditor}
+                disabled={isSaving}
+                variant="outlined"
+                sx={{ textTransform: "none", fontWeight: 800 }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="contained"
+                disabled={isSaving}
+               
+              >
+                {isSaving ? "Saving..." : invoiceForm._id ? "Update" : "Create"}
+              </Button>
+            </DialogActions>
+          </Box>
+        </Dialog>
+
+        <Dialog
+          open={showDetails}
+          onClose={handleCloseDetails}
+          fullWidth
+          maxWidth="sm"
+          PaperProps={{
+            sx: {
+              borderRadius: 4,
+              overflow: "hidden",
+            },
+          }}
+        >
+          <DialogTitle
+            sx={{
+              pb: 2,
+              background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.08)} 0%, ${alpha(theme.palette.success.main, 0.06)} 100%)`,
+            }}
+          >
+            <Stack
+              direction="row"
+              alignItems="flex-start"
+              justifyContent="space-between"
+              spacing={2}
+            >
+              <Box>
+                <Typography
+                  variant="overline"
+                  sx={{
+                    color: "text.secondary",
+                    fontWeight: 800,
+                    letterSpacing: 1.2,
+                  }}
+                >
+                  Invoice Details
+                </Typography>
+                <Typography
+                  variant="h5"
+                  sx={{ fontWeight: 900, lineHeight: 1.1 }}
+                >
+                  {selected?.invoiceNumber || "Invoice preview"}
+                </Typography>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  sx={{ mt: 0.5 }}
+                >
+                  Quick summary, item breakdown, and payment actions.
+                </Typography>
+              </Box>
+              {selected ? getStatusChip(getStatus(selected)) : null}
+            </Stack>
+          </DialogTitle>
+          <DialogContent
+            dividers
+            sx={{ bgcolor: alpha(theme.palette.background.default, 0.5) }}
+          >
+            {!selected ? (
+              <Typography variant="body2" color="text.secondary">
+                No invoice selected.
+              </Typography>
+            ) : (
+              <Stack spacing={1.25}>
+                <Typography variant="body2">
+                  <b>Patient:</b> {getInvoicePatientName(selected)}
+                </Typography>
+                <Typography variant="body2">
+                  <b>Doctor:</b> {getInvoiceDoctorName(selected)}
+                </Typography>
+                <Typography variant="body2">
+                  <b>Appointment:</b>{" "}
+                  {formatAppointmentSlot(selected?.appointmentId)}
+                </Typography>
+                <Typography variant="body2">
+                  <b>Invoice Date:</b> {formatDateTime(selected.invoiceDate)}
+                </Typography>
+                <Typography variant="body2">
+                  <b>Status:</b> {getStatus(selected)}
+                </Typography>
+                <Typography variant="body2">
+                  <b>Total:</b> {formatMoney(selected.totalAmount)}
+                </Typography>
+                <Typography variant="body2">
+                  <b>Paid:</b> {formatMoney(selected.paidAmount)}
+                </Typography>
+                <Typography variant="body2">
+                  <b>Due:</b> {formatMoney(getDue(selected))}
+                </Typography>
+
+                <Box
+                  sx={{
+                    mt: 1,
+                    p: 2,
+                    borderRadius: 3,
+                    bgcolor: "#fff",
+                    border: `1px solid ${alpha(theme.palette.divider, 0.8)}`,
+                  }}
+                >
+                  <Typography
+                    variant="subtitle2"
+                    sx={{ mb: 1, fontWeight: 800 }}
+                  >
+                    Items
+                  </Typography>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 800 }}>Type</TableCell>
+                        <TableCell sx={{ fontWeight: 800 }}>
+                          Description
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: 800 }}>Qty</TableCell>
+                        <TableCell sx={{ fontWeight: 800 }}>Price</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {(selected.items || []).map((item, index) => (
+                        <TableRow key={index}>
+                          <TableCell>{item.type || "-"}</TableCell>
+                          <TableCell>{item.description}</TableCell>
+                          <TableCell>{item.qty ?? 1}</TableCell>
+                          <TableCell>{formatMoney(item.price)}</TableCell>
+                        </TableRow>
+                      ))}
+                      {(selected.items || []).length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={4} align="center">
+                            <Typography variant="body2" color="text.secondary">
+                              No items
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </Box>
+              </Stack>
+            )}
+          </DialogContent>
+          <DialogActions sx={{ px: 3, py: 2, bgcolor: "#fff", gap: 1 }}>
+            {selected &&
+              STRIPE_PUBLISHABLE_KEY &&
+              getStatus(selected) !== "Paid" &&
+              getDue(selected) > 0 && (
+                <Button
+                  variant="contained"
+                  onClick={() => setShowPay(true)}
+                  sx={{
+                    borderRadius: 999,
+                    textTransform: "none",
+                    fontWeight: 800,
+                    boxShadow: "none",
+                  }}
+                >
+                  Pay (Stripe)
+                </Button>
+              )}
+            {selected && (
+              <Button
+                variant="contained"
+                onClick={() => markPaidToggle(selected)}
+                disabled={getStatus(selected) === "Paid"}
+                sx={{
+                  borderRadius: 999,
+                  textTransform: "none",
+                  fontWeight: 800,
+                  boxShadow: "none",
+                }}
+              >
+                {getStatus(selected) === "Paid" ? "Paid" : "Mark Paid"}
+              </Button>
+            )}
+            {selected && (
+              <Button
+                variant="outlined"
+                onClick={() => downloadAsPdf(selected)}
+                sx={{
+                  borderRadius: 999,
+                  textTransform: "none",
+                  fontWeight: 800,
+                }}
+              >
+                Download PDF
+              </Button>
+            )}
+            <Button
+              onClick={handleCloseDetails}
+              sx={{ textTransform: "none", fontWeight: 800 }}
+            >
+              Close
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <PayInvoiceDialog
+          open={showPay}
+          onClose={() => setShowPay(false)}
+          invoice={selected}
+          publishableKey={STRIPE_PUBLISHABLE_KEY}
+          showToast={showToast}
+          onPaid={async (invoiceId) => {
+            const invoice =
+              invoices.find((item) => item._id === invoiceId) || selected;
+            if (invoice) {
+              await setPaidAmount(invoice, Number(invoice.totalAmount || 0));
+            }
+            await fetchInvoices();
+          }}
+        />
+
+        <Snackbar
+          open={toast.open}
+          autoHideDuration={3000}
+          onClose={() => setToast((value) => ({ ...value, open: false }))}
+          anchorOrigin={{ vertical: "top", horizontal: "right" }}
+          sx={{ mt: 2 }}
+        >
+          <Alert
+            onClose={() => setToast((value) => ({ ...value, open: false }))}
+            severity={toast.severity}
+            variant="filled"
+            sx={{ width: "100%" }}
+          >
+            {toast.message}
+          </Alert>
+        </Snackbar>
+      </Stack>
     </Box>
   );
 }
 
-
-
-
-
-
-
-
-function PayInvoiceDialog({ open, onClose, invoice, apiBaseUrl, publishableKey, showToast, onPaid }) {
+function PayInvoiceDialog({
+  open,
+  onClose,
+  invoice,
+  publishableKey,
+  showToast,
+  onPaid,
+}) {
   const [clientSecret, setClientSecret] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const status = invoice?.status || invoice?.paymentStatus || "Unpaid";
-  const due = Math.max(
-    0,
-    Number(invoice?.totalAmount || 0) - Number(invoice?.paidAmount || 0)
-  );
+  const due = getDue(invoice);
 
   const stripePromise = useMemo(
     () => (publishableKey ? loadStripe(publishableKey) : null),
-    [publishableKey]
+    [publishableKey],
   );
 
   useEffect(() => {
     if (!open || !invoice?._id || !publishableKey) return;
+
     if (status === "Paid" || due <= 0) {
       setIsLoading(false);
       setClientSecret("");
       return;
     }
 
-    let isActive = true;
+    let active = true;
     setIsLoading(true);
     setClientSecret("");
 
-    axios
-      .post(`${apiBaseUrl}/payments/create-intent`, { invoiceId: invoice._id })
-      .then((res) => {
-        if (!isActive) return;
-        setClientSecret(res.data?.clientSecret || "");
+    api
+      .post("/payments/create-intent", { invoiceId: invoice._id })
+      .then((response) => {
+        if (!active) return;
+        setClientSecret(response.data?.clientSecret || "");
       })
-      .catch((err) => {
-        console.error("Failed to create payment intent", err);
-        showToast?.("Failed to start payment.", "error");
-        if (isActive) setClientSecret("");
+      .catch((error) => {
+        console.error("Failed to create payment intent", error);
+        if (active) setClientSecret("");
+        showToast?.(
+          getErrorMessage(error, "Failed to start payment."),
+          "error",
+        );
       })
       .finally(() => {
-        if (isActive) setIsLoading(false);
+        if (active) setIsLoading(false);
       });
 
     return () => {
-      isActive = false;
+      active = false;
     };
-  }, [open, invoice?._id, status, due, apiBaseUrl, publishableKey, showToast]);
+  }, [open, invoice?._id, publishableKey, status, due, showToast]);
 
   const close = () => {
     if (!isLoading) onClose?.();
@@ -1145,28 +1801,36 @@ function PayInvoiceDialog({ open, onClose, invoice, apiBaseUrl, publishableKey, 
         {publishableKey && isLoading && (
           <Stack direction="row" alignItems="center" spacing={1}>
             <CircularProgress size={18} />
-            <Typography variant="body2">Preparing payment…</Typography>
+            <Typography variant="body2">Preparing payment...</Typography>
           </Stack>
         )}
 
-        {publishableKey && status !== "Paid" && due > 0 && !isLoading && !clientSecret && (
-          <Alert severity="warning" variant="outlined">
-            Payment cannot be started. Please try again.
-          </Alert>
-        )}
+        {publishableKey &&
+          status !== "Paid" &&
+          due > 0 &&
+          !isLoading &&
+          !clientSecret && (
+            <Alert severity="warning" variant="outlined">
+              Payment cannot be started. Please try again.
+            </Alert>
+          )}
 
-        {publishableKey && status !== "Paid" && due > 0 && clientSecret && stripePromise && (
-          <Elements stripe={stripePromise} options={{ clientSecret }}>
-            <StripeCheckoutForm
-              onSuccess={async () => {
-                showToast?.("Payment successful.", "success");
-                if (invoice?._id) await onPaid?.(invoice._id);
-                onClose?.();
-              }}
-              showToast={showToast}
-            />
-          </Elements>
-        )}
+        {publishableKey &&
+          status !== "Paid" &&
+          due > 0 &&
+          clientSecret &&
+          stripePromise && (
+            <Elements stripe={stripePromise} options={{ clientSecret }}>
+              <StripeCheckoutForm
+                onSuccess={async () => {
+                  showToast?.("Payment successful.", "success");
+                  if (invoice?._id) await onPaid?.(invoice._id);
+                  onClose?.();
+                }}
+                showToast={showToast}
+              />
+            </Elements>
+          )}
       </DialogContent>
       <DialogActions>
         <Button onClick={close}>Close</Button>
@@ -1180,8 +1844,8 @@ function StripeCheckoutForm({ onSuccess, showToast }) {
   const elements = useElements();
   const [isPaying, setIsPaying] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async (event) => {
+    event.preventDefault();
     if (!stripe || !elements) return;
 
     setIsPaying(true);
@@ -1201,11 +1865,11 @@ function StripeCheckoutForm({ onSuccess, showToast }) {
       } else {
         showToast?.(
           `Payment status: ${paymentIntent?.status || "unknown"}.`,
-          "warning"
+          "warning",
         );
       }
-    } catch (err) {
-      console.error("Stripe confirmPayment failed", err);
+    } catch (error) {
+      console.error("Stripe confirmPayment failed", error);
       showToast?.("Payment failed. Please try again.", "error");
     } finally {
       setIsPaying(false);
@@ -1216,7 +1880,11 @@ function StripeCheckoutForm({ onSuccess, showToast }) {
     <Box component="form" onSubmit={handleSubmit} sx={{ mt: 1 }}>
       <PaymentElement />
       <Stack direction="row" justifyContent="flex-end" sx={{ mt: 2 }}>
-        <Button type="submit" variant="contained" disabled={!stripe || isPaying}>
+        <Button
+          type="submit"
+          variant="contained"
+          disabled={!stripe || isPaying}
+        >
           {isPaying ? "Processing..." : "Pay Now"}
         </Button>
       </Stack>
@@ -1224,16 +1892,121 @@ function StripeCheckoutForm({ onSuccess, showToast }) {
   );
 }
 
+function BillingStatCard({ title, value, note, icon, accent }) {
+  return (
+    <Paper 
+      elevation={0}
+      sx={{
+        height: "100%",
+        p: 2.5,
+        borderRadius: 4,
+        border: `1px solid ${alpha(accent, 0.15)}`,
+        background: `linear-gradient(180deg, ${alpha(accent, 0.09)} 0%, #ffffff 72%)`,
+        boxShadow: "0 18px 42px rgba(15, 23, 42, 0.08)",
+      }}
+    >    
+      <Stack
+        direction="row"
+        alignItems="flex-start"
+        justifyContent="space-between"
+        spacing={2}
+      >
+        <Box sx={{ minWidth: 0 }}>
+          <Typography
+            variant="body2"
+            sx={{
+              fontWeight: 700,
+              letterSpacing: 0.3,
+              color: "text.secondary",
+            }}
+          >
+            {title}
+          </Typography>
+          <Typography
+            variant="h4"
+            sx={{
+              mt: 0.75,
+              fontWeight: 900,
+              lineHeight: 1.05,
+              fontSize: { xs: 28, md: 34 },
+              color: "text.primary",
+            }}
+          >
+            {value}
+          </Typography>
+          {note ? (
+            <Typography
+              variant="caption"
+              sx={{ color: "text.secondary", display: "block", mt: 0.75 }}
+            >
+              {note}
+            </Typography>
+          ) : null}
+        </Box>
+        <Avatar
+          sx={{
+            width: 54,
+            height: 54,
+            borderRadius: 3,
+            bgcolor: alpha(accent, 0.12),
+            color: accent,
+          }}
+        >
+          {icon}
+        </Avatar>
+      </Stack>
+    </Paper>
+  );
+}
 
-
-
-
-
-
-
-
-
-
-
-
-
+function SnapshotRow({ label, value, note, progress, accent }) {
+  return (
+    <Box
+      sx={{
+        p: 1.5,
+        borderRadius: 3,
+        border: `1px solid ${alpha(accent, 0.18)}`,
+        background: `linear-gradient(180deg, ${alpha(accent, 0.08)} 0%, ${alpha(
+          accent,
+          0.04,
+        )} 100%)`,
+      }}
+    >
+      <Stack
+        direction="row"
+        alignItems="baseline"
+        justifyContent="space-between"
+        spacing={1}
+      >
+        <Typography variant="body2" sx={{ fontWeight: 700 }}>
+          {label}
+        </Typography>
+        <Typography variant="h6" sx={{ fontWeight: 900, lineHeight: 1 }}>
+          {value}
+        </Typography>
+      </Stack>
+      {note ? (
+        <Typography
+          variant="caption"
+          sx={{ color: "text.secondary", display: "block", mt: 0.5 }}
+        >
+          {note}
+        </Typography>
+      ) : null}
+      <LinearProgress
+        variant="determinate"
+        value={Math.max(0, Math.min(100, Number(progress || 0)))}
+        sx={{
+          mt: 1,
+          height: 8,
+          borderRadius: 999,
+          bgcolor: alpha(accent, 0.16),
+          "& .MuiLinearProgress-bar": {
+            borderRadius: 999,
+            bgcolor: accent,
+          },
+        }}
+      />
+    </Box>
+  );
+}

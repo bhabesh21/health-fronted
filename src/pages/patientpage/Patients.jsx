@@ -15,6 +15,7 @@ import Select from "@mui/material/Select";
 import Stack from "@mui/material/Stack";
 import Alert from "@mui/material/Alert";
 import Snackbar from "@mui/material/Snackbar";
+import Card from "@mui/material/Card";
 import Table from "@mui/material/Table";
 import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
@@ -25,17 +26,15 @@ import TextField from "@mui/material/TextField";
 import Typography from "@mui/material/Typography";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
+import { ThreeDots } from "react-loader-spinner";
+import api from "../../api/api-handler";
 
 export default function Patients() {
-  const API_BASE_URL = (
-    import.meta.env.VITE_API_BASEURL ||
-    import.meta.env.api_baseurl ||
-    "http://localhost:5000/api"
-  ).replace(/\/+$/, "");
-
   const genderOptions = ["Male", "Female", "Other"];
 
   const [patients, setPatients] = useState([]);
+  const [loading, setLoading] = useState(true);
+
   const emptyForm = {
     name: "",
     age: "",
@@ -44,10 +43,12 @@ export default function Patients() {
     disease: "",
     address: "",
   };
+
   const [form, setForm] = useState(emptyForm);
   const [editId, setEditId] = useState(null);
   const [showDialog, setShowDialog] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
   const [toast, setToast] = useState({
     open: false,
     message: "",
@@ -79,11 +80,17 @@ export default function Patients() {
   // GET Patients
   const fetchPatients = async () => {
     try {
-      const res = await axios.get(`${API_BASE_URL}/patients/get-allpatients`);
-      setPatients(res.data);
+      setLoading(true);
+
+      setTimeout(async () => {
+        const res = await api.get(`/admin/patients/getall`);
+        setPatients(res.data.patients || []);
+        setLoading(false);
+      }, 2000);
     } catch (err) {
       console.error("Failed to fetch patients", err);
       showToast("Failed to fetch patients.", "error");
+      setLoading(false);
     }
   };
 
@@ -108,23 +115,20 @@ export default function Patients() {
     setShowDialog(true);
   };
 
-  // ADD / UPDATE Patient
+  // ADD / UPDATE
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     setIsSaving(true);
+
     try {
       const payload = toPayload();
 
       if (editId) {
-        await axios.put(
-          `${API_BASE_URL}/patients/update/${editId}`,
-          payload
-        );
-        showToast("Patient updated successfully.", "success");
+        await api.put(`/admin/patients/update/${editId}`, payload);
+        showToast("Patient updated successfully.");
       } else {
-        await axios.post(`${API_BASE_URL}/patients/createPatient`, payload);
-        showToast("Patient added successfully.", "success");
+        await api.post(`/admin/patients/create`, payload);
+        showToast("Patient added successfully.");
       }
 
       setForm(emptyForm);
@@ -132,26 +136,25 @@ export default function Patients() {
       setShowDialog(false);
       fetchPatients();
     } catch (err) {
-      console.error("Failed to save patient", err);
-      showToast("Failed to save patient. Please try again.", "error");
+      console.error(err);
+      showToast("Failed to save patient.", "error");
     } finally {
       setIsSaving(false);
     }
   };
 
-  // DELETE Patient
+  // DELETE
   const handleDelete = async (id) => {
     try {
-      await axios.delete(`${API_BASE_URL}/patients/${id}`);
-      showToast("Patient deleted.", "success");
+      await api.delete(`/admin/patients/delete/${id}`);
+      showToast("Patient deleted.");
       fetchPatients();
     } catch (err) {
-      console.error("Failed to delete patient", err);
-      showToast("Failed to delete patient. Please try again.", "error");
+      console.error(err);
+      showToast("Delete failed.", "error");
     }
   };
 
-  // EDIT Patient
   const handleEdit = (p) => {
     setForm(normalizeForm(p));
     setEditId(p._id);
@@ -160,177 +163,115 @@ export default function Patients() {
 
   return (
     <Box sx={{ px: 2, py: 3 }}>
-      <Stack
-        direction="row"
-        alignItems="center"
-        justifyContent="space-between"
-        sx={{ mb: 2 }}
-      >
-        <Typography variant="h5" fontWeight={700}>
-          Patient Management
-        </Typography>
-        <Button variant="contained" onClick={handleOpenAdd}>
-          Add Patient
-        </Button>
-      </Stack>
+      {loading ? (
+        <Card>
+          <Box sx={{ display: "flex", justifyContent: "center", mt: 5 }}>
+            <ThreeDots height="80" width="80" color="gray" />
+          </Box>
+        </Card>
+      ) : patients.length === 0 ? (
+        <Paper sx={{ p: 4, textAlign: "center", mt: 3 }}>
+          <Typography>No Patients Found</Typography>
+          <Button variant="contained" onClick={handleOpenAdd} sx={{ mt: 2 }}>
+            Add Patient
+          </Button>
+        </Paper>
+      ) : (
+        <div>
+          <Stack direction="row" justifyContent="space-between" sx={{ mb: 2 }}>
+            <Typography variant="h5">Patient Management</Typography>
+            <Button variant="contained" onClick={handleOpenAdd}>
+              Add Patient
+            </Button>
+          </Stack>
 
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Name</TableCell>
-              <TableCell>Age</TableCell>
-              <TableCell>Gender</TableCell>
-              <TableCell>Phone</TableCell>
-              <TableCell>Disease</TableCell>
-              <TableCell>Address</TableCell>
-              <TableCell align="right">Action</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {patients.map((p) => (
-              <TableRow key={p._id} hover>
-                <TableCell>{p.name}</TableCell>
-                <TableCell>{p.age ?? "-"}</TableCell>
-                <TableCell>{p.gender ?? "-"}</TableCell>
-                <TableCell>{p.phone ?? "-"}</TableCell>
-                <TableCell>{p.disease ?? "-"}</TableCell>
-                <TableCell>{p.address ?? "-"}</TableCell>
-                <TableCell align="right">
-                  <IconButton
-                    aria-label="edit"
-                    onClick={() => handleEdit(p)}
-                    size="small"
-                  >
-                    <EditIcon fontSize="small" />
-                  </IconButton>
-                  <IconButton
-                    aria-label="delete"
-                    onClick={() => handleDelete(p._id)}
-                    size="small"
-                    color="error"
-                  >
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </TableCell>
-              </TableRow>
-            ))}
-            {patients.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={7} align="center">
-                  <Typography variant="body2" color="text.secondary">
-                    No patients found
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </TableContainer>
+          <TableContainer component={Paper}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Name</TableCell>
+                  <TableCell>Age</TableCell>
+                  <TableCell>Gender</TableCell>
+                  <TableCell>Phone</TableCell>
+                  <TableCell>Disease</TableCell>
+                  <TableCell>Address</TableCell>
+                  <TableCell  align="right">Action</TableCell>
+                </TableRow>  
+              </TableHead>  
 
-      <Dialog
-        open={showDialog}
-        onClose={handleCloseDialog}
-        fullWidth
-        maxWidth="sm"
-      >
+              <TableBody>
+                {patients.map((p) => (
+                  <TableRow key={p._id}>
+                    <TableCell>{p.name}</TableCell>
+                    <TableCell>{p.age ?? "-"}</TableCell>
+                    <TableCell>{p.gender ?? "-"}</TableCell>
+                    <TableCell>{p.phone ?? "-"}</TableCell>
+                    <TableCell>{p.disease ?? "-"}</TableCell> 
+                    <TableCell>{p.address ?? "-"}</TableCell> 
+
+                    <TableCell align="right">
+                      <IconButton onClick={() => handleEdit(p)}>
+                        <EditIcon />
+                      </IconButton>
+
+                      <IconButton
+                        onClick={() => handleDelete(p._id)}
+                        color="error"
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </div>
+      )}
+
+      {/* Dialog */}
+      <Dialog open={showDialog} onClose={handleCloseDialog} fullWidth>
         <Box component="form" onSubmit={handleSubmit}>
-          <DialogTitle>{editId ? "Update Patient" : "Add Patient"}</DialogTitle>
+          <DialogTitle>{editId ? "Update" : "Add"} Patient</DialogTitle>
 
-          <DialogContent dividers>
-            <Stack spacing={2} sx={{ pt: 1 }}>
-              <TextField
-                label="Name"
-                name="name"
-                size="small"
-                value={form.name}
-                onChange={handleChange}
-                fullWidth
-                required
-              />
+          <DialogContent>
+            <Stack spacing={2} mt={1}>
+              <TextField label="Name" name="name" size="small" value={form.name} onChange={handleChange} fullWidth required />
+              <TextField label="Age" name="age" type="number" size="small" value={form.age} onChange={handleChange} fullWidth />
 
-              <TextField
-                label="Age"
-                name="age"
-                type="number"
-                size="small"
-                value={form.age}
-                onChange={handleChange}
-                fullWidth
-                inputProps={{ min: 0 }}
-              />
-
-              <FormControl fullWidth size="small">
-                <InputLabel id="patient-gender-label">Gender</InputLabel>
-                <Select
-                  labelId="patient-gender-label"
-                  label="Gender"
-                  name="gender"
-                  value={form.gender}
-                  onChange={handleChange}
-                >
-                  <MenuItem value="" disabled>
-                    Select gender
-                  </MenuItem>
-                  {genderOptions.map((opt) => (
-                    <MenuItem key={opt} value={opt}>
-                      {opt}
-                    </MenuItem>
+              <FormControl size="small">
+                <InputLabel>Gender</InputLabel>
+                <Select name="gender" value={form.gender} onChange={handleChange}>
+                  {genderOptions.map((g) => (
+                    <MenuItem key={g} value={g}>{g}</MenuItem>
                   ))}
                 </Select>
               </FormControl>
 
-              <TextField
-                label="Phone"
-                name="phone"
-                size="small"
-                value={form.phone}
-                onChange={handleChange}
-                fullWidth
-              />
-
-              <TextField
-                label="Disease"
-                name="disease"
-                size="small"
-                value={form.disease}
-                onChange={handleChange}
-                fullWidth
-              />
-
-              <TextField
-                label="Address"
-                name="address"
-                size="small"
-                value={form.address}
-                onChange={handleChange}
-                fullWidth
-                multiline
-                minRows={2}
-              />
+              <TextField label="Phone" name="phone" size="small" value={form.phone} onChange={handleChange} fullWidth />
+              <TextField label="Disease" name="disease" size="small" value={form.disease} onChange={handleChange} fullWidth />
+              <TextField label="Address" name="address" size="small" value={form.address} onChange={handleChange} fullWidth />
             </Stack>
           </DialogContent>
 
           <DialogActions>
-            <Button onClick={handleCloseDialog} disabled={isSaving}>
-              Cancel
-            </Button>
-            <Button type="submit" variant="contained" disabled={isSaving}>
-              {isSaving ? "Saving..." : editId ? "Update" : "Add"}
+            <Button onClick={handleCloseDialog}>Cancel</Button>
+            <Button type="submit" variant="contained">
+              {isSaving ? "Saving..." : "Submit"}
             </Button>
           </DialogActions>
         </Box>
       </Dialog>
 
+      {/* ✅ TOP RIGHT TOAST */}
       <Snackbar
         open={toast.open}
         autoHideDuration={3000}
-        onClose={() => setToast((t) => ({ ...t, open: false }))}
+        onClose={() => setToast({ ...toast, open: false })}
         anchorOrigin={{ vertical: "top", horizontal: "right" }}
-        sx={{ mt: 2 }}
       >
         <Alert
-          onClose={() => setToast((t) => ({ ...t, open: false }))}
+          onClose={() => setToast({ ...toast, open: false })}
           severity={toast.severity}
           variant="filled"
           sx={{ width: "100%" }}

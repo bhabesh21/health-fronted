@@ -9,17 +9,15 @@ import Billing from "./pages/Billing.jsx";
 import Reports from "./pages/Reports.jsx";
 import Settings from "./pages/Settings.jsx";
 import Login from "./pages/Login.jsx";
-import Signup from "./pages/Signup.jsx";
-import VerifyOtp from "./pages/VerifyOtp.jsx";
+import { AuthProvider } from "./contexts/AuthContext.jsx";
 
 export default function App() {
   return (
-    <Routes>
+    <AuthProvider>
+      <Routes>
       <Route path="/login" element={<Login />} />
 
-      <Route path="/signup" element={<Signup />} />
 
-      <Route path="/verify-otp" element={<VerifyOtp />} />
 
       <Route
         element={
@@ -39,6 +37,7 @@ export default function App() {
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>
     </Routes>
+    </AuthProvider>
   );
 }
 

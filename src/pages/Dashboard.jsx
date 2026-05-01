@@ -5,6 +5,8 @@ import Row from "react-bootstrap/Row";
 import Col from "react-bootstrap/Col";
 import Table from "react-bootstrap/Table";
 import Badge from "react-bootstrap/Badge";
+import api from "../api/api-handler"; 
+
 import {
   ResponsiveContainer,
   LineChart,
@@ -79,17 +81,24 @@ function StatCard({ title, value, icon, color, subtitle }) {
 }
 
 export default function Dashboard() {
-  const API_BASE_URL = (
-    import.meta.env.VITE_API_BASEURL ||
-    import.meta.env.api_baseurl ||
-    "http://localhost:5000/api"
-  ).replace(/\/+$/, "");
+  
+  
+
 
   const [stats, setStats] = useState({
     doctors: 0,
     patients: 0,
     appointments: 0,
-    revenue: 0
+    revenue: 0,
+    pendingAppointments: 0,
+    approvedAppointments: 0,
+    rejectedAppointments: 0,
+    paidInvoices: 0,
+    unpaidInvoices: 0,
+    partialInvoices: 0,
+    totalInvoices: 0,
+    totalRevenue: 0,
+    pendingRevenue: 0
   });
   const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState("");
@@ -101,14 +110,23 @@ export default function Dashboard() {
       setStatsLoading(true);
       setStatsError("");
       try {
-        const res = await axios.get(`${API_BASE_URL}/dashboard/stats`);
-        const payload = res?.data?.data || {};
+        const res = await api.get(`/admin/dashboard/stats`);
+        const payload = res?.data?.data || {};                 
 
         const next = {
-          doctors: Number(payload.totalDoctors || 0),
-          patients: Number(payload.totalPatients || 0),
-          appointments: Number(payload.totalAppointmentsToday || 0),
-          revenue: Number(payload.totalRevenue || 0)
+          doctors: Number(payload.overview?.totalDoctors || 0),
+          patients: Number(payload.overview?.totalPatients || 0),
+          appointments: Number(payload.appointments?.total || 0),
+          revenue: Number(payload.revenue?.totalRevenue || 0),
+          pendingAppointments: Number(payload.appointments?.pending || 0),
+          approvedAppointments: Number(payload.appointments?.approved || 0),
+          rejectedAppointments: Number(payload.appointments?.rejected || 0),
+          paidInvoices: Number(payload.invoices?.paid || 0),
+          unpaidInvoices: Number(payload.invoices?.unpaid || 0),
+          partialInvoices: Number(payload.invoices?.partial || 0),
+          totalInvoices: Number(payload.invoices?.total || 0),
+          totalRevenue: Number(payload.revenue?.totalRevenue || 0),
+          pendingRevenue: Number(payload.revenue?.pendingRevenue || 0)
         };
 
         if (isActive) setStats(next);
@@ -116,7 +134,21 @@ export default function Dashboard() {
         console.error("Failed to fetch dashboard stats", err);
         if (isActive) {
           setStatsError("Failed to load dashboard analytics.");
-          setStats({ doctors: 0, patients: 0, appointments: 0, revenue: 0 });
+          setStats({
+            doctors: 0,
+            patients: 0,
+            appointments: 0,
+            revenue: 0,
+            pendingAppointments: 0,
+            approvedAppointments: 0,
+            rejectedAppointments: 0,
+            paidInvoices: 0,
+            unpaidInvoices: 0,
+            partialInvoices: 0,
+            totalInvoices: 0,
+            totalRevenue: 0,
+            pendingRevenue: 0
+          });
         }
       } finally {
         if (isActive) setStatsLoading(false);
@@ -127,7 +159,7 @@ export default function Dashboard() {
     return () => {
       isActive = false;
     };
-  }, [API_BASE_URL]);
+  }, []);
   const appointmentsPerMonth = [
     { month: "Jan", appointments: 38 },
     { month: "Feb", appointments: 42 },
@@ -158,8 +190,8 @@ export default function Dashboard() {
     { name: "Pediatrics", value: 4 },
     { name: "Dermatology", value: 3 },
     { name: "Other", value: 10 }
-  ];
-
+  ];  
+  
   const pieColors = ["#1976d2", "#2e7d32", "#ed6c02", "#9c27b0", "#607d8b"];
 
   const recentAppointments = [
@@ -242,6 +274,45 @@ export default function Dashboard() {
             subtitle="₹ total"
             icon={<FaRupeeSign />}
             color="#9c27b0"
+          />
+        </Col>
+      </Row>
+
+      <Row className="g-3 g-lg-4 mt-1">
+        <Col xs={12} md={6} xl={3}>
+          <StatCard
+            title="Pending Appointments"
+            value={stats.pendingAppointments}
+            subtitle="awaiting"
+            icon={<FaCalendarCheck />}
+            color="#f57c00"
+          />
+        </Col>
+        <Col xs={12} md={6} xl={3}>
+          <StatCard
+            title="Approved Appointments"
+            value={stats.approvedAppointments}
+            subtitle="confirmed"
+            icon={<FaCalendarCheck />}
+            color="#388e3c"
+          />
+        </Col>
+        <Col xs={12} md={6} xl={3}>
+          <StatCard
+            title="Paid Invoices"
+            value={stats.paidInvoices}
+            subtitle="completed"
+            icon={<FaRupeeSign />}
+            color="#2e7d32"
+          />
+        </Col>
+        <Col xs={12} md={6} xl={3}>
+          <StatCard
+            title="Pending Revenue"
+            value={stats.pendingRevenue.toLocaleString("en-IN")}
+            subtitle="₹ unpaid"
+            icon={<FaRupeeSign />}
+            color="#d32f2f"
           />
         </Col>
       </Row>
