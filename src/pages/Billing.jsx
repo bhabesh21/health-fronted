@@ -106,7 +106,6 @@ const unwrapRows = (payload) => {
   if (Array.isArray(payload?.invoices)) return payload.invoices;
   return [];
 };
-
 const getStatus = (invoice) =>
   invoice?.status || invoice?.paymentStatus || "Unpaid";
 
@@ -188,6 +187,8 @@ export default function Billing() {
     message: "",
     severity: "success",
   });
+  const disablePatientDoctorFields =
+    !invoiceForm._id && !invoiceForm.appointmentId;
 
   const showToast = (message, severity = "success") => {
     setToast({ open: true, message, severity });
@@ -845,7 +846,7 @@ export default function Billing() {
             />
           </Grid>
         </Grid>
-
+     
 <Stack spacing={3} sx={{ position: "relative", zIndex: 1 }}>
   {/* Search + Filter + Create */}
   <Paper
@@ -1115,7 +1116,7 @@ export default function Billing() {
           scroll="paper"
           fullScreen={isMobile}
           fullWidth
-          maxWidth="md"
+          maxWidth="lg"
           PaperProps={{
             sx: {
               borderRadius: isMobile ? 0 : 4,
@@ -1137,9 +1138,11 @@ export default function Billing() {
             }}
           >
             <DialogTitle
+
+            maxWidth="lg" fullWidth
               sx={{
                 pb: 2,
-                background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.06)} 100%)`,
+                background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.08)} 0%, ${alpha(theme.palette.info.main, 0.06)} )`, 
               }}
             >
               <Stack
@@ -1214,8 +1217,8 @@ export default function Billing() {
                   </FormControl>
                 )}
 
-                <Stack direction={{ xs: "column", sm: "row" }} spacing={2}> 
-                  <TextField 
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                  <TextField
                     label="Patient"
                     name="patientName"
                     size="small"
@@ -1223,6 +1226,7 @@ export default function Billing() {
                     onChange={handleEditorChange}
                     fullWidth
                     required
+                    disabled={disablePatientDoctorFields}
                   />
                   <TextField
                     label="Doctor"
@@ -1231,9 +1235,10 @@ export default function Billing() {
                     value={invoiceForm.doctorName}
                     onChange={handleEditorChange}
                     fullWidth
-                    required                        
+                    required
+                    disabled={disablePatientDoctorFields}
                   />
-                </Stack>          
+                </Stack>
 
                 <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
                   <TextField
